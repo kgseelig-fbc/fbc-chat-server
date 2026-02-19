@@ -324,7 +324,7 @@ CONTACT: Phone 904-770-4464. Email kseelig@freedomboatclub.com. Dock email fbcdo
 // ---------------------------------------------------------------------------
 // Start server
 // ---------------------------------------------------------------------------
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   const hasKey = !!process.env.ANTHROPIC_API_KEY;
   console.log(`\n  Freedom Boat Club Chat Server`);
   console.log(`  ==============================`);
