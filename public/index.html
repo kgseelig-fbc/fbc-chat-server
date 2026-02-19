@@ -84,7 +84,7 @@ body{font-family:'DM Sans',sans-serif;background:linear-gradient(160deg,#0B1D3A,
         <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
       </button>
     </div>
-    <div class="footer">Freedom Boat Club of NE Florida &bull; 904-770-4464</div>
+    <div class="footer">Freedom Boat Club of NE Florida &bull; 904-329-7456</div>
   </div>
 </div>
 <script>
@@ -164,15 +164,15 @@ function send() {
         chatHistory.push({ role: "assistant", content: data.reply });
         addMsg("bot", data.reply);
       } else {
-        addMsg("bot", "I'm having trouble right now. Please call us at 904-770-4464!");
+        addMsg("bot", "I'm having trouble right now. Please call us at 904-329-7456!");
       }
     } catch(e) {
-      addMsg("bot", "I'm having trouble connecting. Please call us at 904-770-4464!");
+      addMsg("bot", "I'm having trouble connecting. Please call us at 904-329-7456!");
     }
   };
   xhr.onerror = function() {
     hideTyping();
-    addMsg("bot", "I'm having trouble connecting. Please try again or call 904-770-4464!");
+    addMsg("bot", "I'm having trouble connecting. Please try again or call 904-329-7456!");
   };
   xhr.send(JSON.stringify({ messages: chatHistory, conversationId: cid }));
 }
