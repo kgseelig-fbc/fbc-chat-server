@@ -215,9 +215,17 @@ app.get("/health", (req, res) => {
 // ============================================================
 // HTTP SERVER + WEBSOCKET FOR RETELL AI
 // ============================================================
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: "/llm-websocket" });
+const wss = new WebSocketServer({ noServer: true });
 
+server.on("upgrade", (request, socket, head) => {
+  if (request.url.startsWith("/llm-websocket")) {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit("connection", ws, request);
+    });
+  } else {
+    socket.destroy();
+  }
+});
 wss.on("connection", (ws, req) => {
   console.log("🎙️  Retell AI WebSocket connected");
 
