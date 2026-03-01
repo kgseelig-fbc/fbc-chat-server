@@ -263,7 +263,7 @@ wss.on("connection", (ws, req) => {
         try {
           var apiMessages = conversationHistory.length > 0
             ? conversationHistory
-            : [{ role: "user", content: "Hello" }];
+           : [{ role: "user", content: "[A new caller has just connected. Greet them warmly and let them know they have reached Freedom Boat Club Northeast Florida and ask how you can help them today.]" }];
 
           var stream = anthropic.messages.stream({
             model: "claude-sonnet-4-20250514",
