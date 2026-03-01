@@ -124,6 +124,7 @@ ${FBC_KNOWLEDGE_BASE}`;
 // ============================================================
 app.post("/api/chat", async (req, res) => {
   try {
+    console.log("Chat request body:", JSON.stringify(req.body));
     const message = req.body.message || req.body.content;
     if (!message) return res.status(400).json({ error: "No message" });
 
