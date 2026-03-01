@@ -125,25 +125,34 @@ ${FBC_KNOWLEDGE_BASE}`;
 app.post("/api/chat", async (req, res) => {
   try {
     console.log("Chat request body:", JSON.stringify(req.body));
-    const message = req.body.message || req.body.content;
-    if (!message) return res.status(400).json({ error: "No message" });
 
-    const messages = [];
-    if (history && Array.isArray(history)) {
-      for (const h of history.slice(-10)) {
-        messages.push({ role: h.role, content: h.content });
+    var chatMessages = [];
+
+    if (req.body.messages && Array.isArray(req.body.messages)) {
+      chatMessages = req.body.messages.slice(-10);
+    } else {
+      var message = req.body.message || req.body.content;
+      if (!message) return res.status(400).json({ error: "No message" });
+      if (req.body.history && Array.isArray(req.body.history)) {
+        for (var i = 0; i < req.body.history.length; i++) {
+          var h = req.body.history[i];
+          chatMessages.push({ role: h.role, content: h.content });
+        }
       }
+      chatMessages.push({ role: "user", content: message });
     }
-    messages.push({ role: "user", content: message });
+
+    if (chatMessages.length === 0) return res.status(400).json({ error: "No message" });
 
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 1024,
       system: CHAT_SYSTEM_PROMPT,
-      messages,
+      messages: chatMessages,
     });
 
     const reply = response.content[0]?.text || "I'm having trouble right now.";
+    console.log("Chat reply sent: " + reply.substring(0, 80));
     res.json({ reply });
   } catch (err) {
     console.error("Chat error:", err.message);
