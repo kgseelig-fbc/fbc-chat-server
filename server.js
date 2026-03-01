@@ -69,7 +69,7 @@ EQUIPMENT COSTS (without POM): Fender $35, Aluminum Prop $145, Anchor Kit $225, 
 INCIDENT POLICIES: Without POM: Grounding+tow = $350 fee. 2nd = suspension+$350 retraining. 3rd = termination. High and dry+tow = $350 fee. With POM Elite: towing for operator error is covered.
 
 CONTACT:
-  Phone: 904-770-4464
+  Phone: 904-329-7456
   Website: freedomboatclub.com
   Reservations: reservations.freedomboatclub.com or FBC mobile app
   Used boats: affordableboating.com
@@ -82,7 +82,7 @@ const CHAT_SYSTEM_PROMPT = `You are the Freedom Boat Club NE Florida virtual ass
 
 RULES:
 - Be friendly, concise, and accurate.
-- Use the knowledge base below to answer questions. If you don't know, say so and recommend calling 904-770-4464.
+- Use the knowledge base below to answer questions. If you don't know, say so and recommend calling 904-329-7456.
 - Never invent policies or pricing not in the knowledge base.
 - If asked about specific pricing (monthly dues, entry fees), say pricing varies and recommend contacting the local club or visiting freedomboatclub.com.
 - For reservation questions, always recommend the mobile app first.
@@ -100,7 +100,7 @@ CRITICAL VOICE RULES:
 - Keep responses SHORT — 1-3 sentences max. People are listening, not reading.
 - NEVER say URLs, links, or web addresses out loud. Instead say "check the Freedom Boat Club app" or "visit our website."
 - NEVER use bullet points, numbered lists, or markdown formatting.
-- Use natural spoken language. Say "nine oh four, seven seventy, forty-four sixty-four" not "904-770-4464."
+- Use natural spoken language. Say "nine oh four, three twenty-nine, seventy-four fifty-six" not "904-329-7456."
 - Be warm and conversational, like a helpful dock staff member.
 - If you don't know the answer or the question is complex (billing disputes, specific account issues, complaints), say: "Let me connect you with one of our team members who can help with that."
 - If someone asks to speak to a person, immediately say: "Absolutely, let me transfer you now."
@@ -124,24 +124,17 @@ ${FBC_KNOWLEDGE_BASE}`;
 // ============================================================
 app.post("/api/chat", async (req, res) => {
   try {
-   console.log("Chat request body:", JSON.stringify(req.body));
+    console.log("Chat request body:", JSON.stringify(req.body));
+    const message = req.body.message || req.body.content;
+    if (!message) return res.status(400).json({ error: "No message" });
 
-    var messages = [];
-
-    if (req.body.messages && Array.isArray(req.body.messages)) {
-      messages = req.body.messages.slice(-10);
-    } else {
-      var message = req.body.message || req.body.content;
-      if (!message) return res.status(400).json({ error: "No message" });
-      if (req.body.history && Array.isArray(req.body.history)) {
-        for (var h of req.body.history.slice(-10)) {
-          messages.push({ role: h.role, content: h.content });
-        }
+    const messages = [];
+    if (history && Array.isArray(history)) {
+      for (const h of history.slice(-10)) {
+        messages.push({ role: h.role, content: h.content });
       }
-      messages.push({ role: "user", content: message });
     }
-
-    if (messages.length === 0) return res.status(400).json({ error: "No message" });
+    messages.push({ role: "user", content: message });
 
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
@@ -321,7 +314,7 @@ wss.on("connection", (ws, req) => {
               lowerResponse.includes("i'll transfer you") ||
               lowerResponse.includes("i will transfer you");
 
-            var transferNumber = process.env.TRANSFER_PHONE_NUMBER || "+19047704464";
+            var transferNumber = process.env.TRANSFER_PHONE_NUMBER || "+19043297456";
 
             // Build the final message
             var finalMsg = {
@@ -344,7 +337,7 @@ wss.on("connection", (ws, req) => {
 
           stream.on("error", (err) => {
             console.error("Anthropic stream error: " + err.message);
-            var transferNumber = process.env.TRANSFER_PHONE_NUMBER || "+19047704464";
+            var transferNumber = process.env.TRANSFER_PHONE_NUMBER || "+19043297456";
             console.log(">>> ERROR TRANSFER to " + transferNumber);
             ws.send(
               JSON.stringify({
@@ -359,7 +352,7 @@ wss.on("connection", (ws, req) => {
           });
         } catch (err) {
           console.error("Anthropic API error: " + err.message);
-          var transferNumber = process.env.TRANSFER_PHONE_NUMBER || "+19047704464";
+          var transferNumber = process.env.TRANSFER_PHONE_NUMBER || "+19043297456";
           console.log(">>> CATCH TRANSFER to " + transferNumber);
           ws.send(
             JSON.stringify({
