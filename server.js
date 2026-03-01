@@ -203,7 +203,7 @@ wss.on("connection", (ws, req) => {
 
   var conversationHistory = [];
 
-  ws.send(
+ ws.send(
     JSON.stringify({
       response_type: "config",
       config: {
@@ -212,6 +212,19 @@ wss.on("connection", (ws, req) => {
       },
     })
   );
+
+  // Send greeting immediately when call connects
+  setTimeout(() => {
+    ws.send(
+      JSON.stringify({
+        response_type: "response",
+        response_id: 0,
+        content: "Thank you for calling Freedom Boat Club Northeast Florida! I'm your virtual assistant. How can I help you today?",
+        content_complete: true,
+        end_call: false,
+      })
+    );
+  }, 500);
 
   ws.on("message", async (data) => {
     try {
