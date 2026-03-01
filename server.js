@@ -61,11 +61,13 @@ WEATHER: Safety first. Dock staff may cancel if conditions are unsafe. No penalt
 TRAINING: All new members complete a checkout (skills assessment) before solo boating. Additional advanced training available. Captains are available for hire.
 
 FLEET: 225+ vessels across NE Florida locations. Mix of pontoons, deck boats, center consoles, bay boats, and bowriders. Boat availability varies by location and season.
-PEACE OF MIND ELITE (POM): Optional deductible reduction program. Cost: $750/year or $70/month (first monthly payment prorated based on enrollment date, then included with regular monthly dues). Requires 1-year commitment, non-refundable, auto-renews unless member opts out. Standard Coverage (included with membership): $2,500 deductible for Liability, $2,500 deductible for Physical Damage, $1M Liability coverage, $300K Uninsured Boater coverage, $5K Medical Claim coverage, Towing for mechanical issues only. Peace of Mind Elite ($750/yr): $0 deductible for Liability, $0 deductible for Physical Damage, all standard coverages PLUS Towing for operator error, Deductible coverage for 2 incidents per plan year (home or reciprocal), Equipment coverage for 2 anchors and 2 props per plan year. POM Elite is a great value — always encourage members to purchase or renew.
+
+PEACE OF MIND ELITE (POM): Optional deductible reduction program. Cost: $750/year or $70/month (first monthly payment prorated based on enrollment date, then included with regular monthly dues). Requires 1-year commitment, non-refundable, auto-renews unless member opts out. Standard Coverage (included with membership): $2,500 deductible for Liability, $2,500 deductible for Physical Damage, $1M Liability coverage, $300K Uninsured Boater coverage, $5K Medical Claim coverage, Towing for mechanical issues only. Peace of Mind Elite ($750/yr): $0 deductible for Liability, $0 deductible for Physical Damage, all standard coverages PLUS Towing for operator error, Deductible coverage for 2 incidents per plan year (home or reciprocal), Equipment coverage for 2 anchors and 2 props per plan year. POM Elite is a great value — always encourage members to purchase or renew. NOTE: When mentioning POM, always clarify it stands for Peace of Mind Elite and is the deductible reduction program — never say Proof of Means.
 
 EQUIPMENT COSTS (without POM): Fender $35, Aluminum Prop $145, Anchor Kit $225, Towing $350, Stainless Prop $1,125, Bimini Damage $900-$2,200, Cowling Damage $425-$1,800. All charges subject to sales tax and additional labor. With POM Elite, 2 anchors and 2 props per year are covered.
 
 INCIDENT POLICIES: Without POM: Grounding+tow = $350 fee. 2nd = suspension+$350 retraining. 3rd = termination. High and dry+tow = $350 fee. With POM Elite: towing for operator error is covered.
+
 CONTACT:
   Phone: 904-770-4464
   Website: freedomboatclub.com
@@ -207,7 +209,7 @@ wss.on("connection", (ws, req) => {
 
   var conversationHistory = [];
 
- ws.send(
+  ws.send(
     JSON.stringify({
       response_type: "config",
       config: {
@@ -216,19 +218,6 @@ wss.on("connection", (ws, req) => {
       },
     })
   );
-
-  // Send greeting immediately when call connects
-  setTimeout(() => {
-    ws.send(
-      JSON.stringify({
-        response_type: "response",
-        response_id: 0,
-        content: "Thank you for calling Freedom Boat Club Northeast Florida! I'm your virtual assistant. How can I help you today?",
-        content_complete: true,
-        end_call: false,
-      })
-    );
-  }, 500);
 
   ws.on("message", async (data) => {
     try {
@@ -280,7 +269,7 @@ wss.on("connection", (ws, req) => {
         try {
           var apiMessages = conversationHistory.length > 0
             ? conversationHistory
-           : [{ role: "user", content: "[A new caller has just connected. Greet them warmly and let them know they have reached Freedom Boat Club Northeast Florida and ask how you can help them today.]" }];
+            : [{ role: "user", content: "Hello" }];
 
           var stream = anthropic.messages.stream({
             model: "claude-sonnet-4-20250514",
@@ -305,11 +294,17 @@ wss.on("connection", (ws, req) => {
           });
 
           stream.on("finalMessage", () => {
+            var lowerResponse = fullResponse.toLowerCase();
             var shouldTransfer =
-              fullResponse.toLowerCase().includes("let me connect you") ||
-              fullResponse.toLowerCase().includes("let me transfer you") ||
-              fullResponse.toLowerCase().includes("transfer you now");
+              lowerResponse.includes("let me connect you") ||
+              lowerResponse.includes("let me transfer you") ||
+              lowerResponse.includes("transfer you now") ||
+              lowerResponse.includes("i'll transfer you") ||
+              lowerResponse.includes("i will transfer you");
 
+            var transferNumber = process.env.TRANSFER_PHONE_NUMBER || "+19047704464";
+
+            // Build the final message
             var finalMsg = {
               response_type: "response",
               response_id: responseId,
@@ -318,13 +313,20 @@ wss.on("connection", (ws, req) => {
               end_call: false,
             };
 
-            transfer_number: process.env.TRANSFER_PHONE_NUMBER || "+19047704464",
+            // CORRECT Retell format: transfer_number as a flat string
+            if (shouldTransfer) {
+              finalMsg.transfer_number = transferNumber;
+              console.log(">>> TRANSFER TRIGGERED to " + transferNumber);
+              console.log(">>> AI said: " + fullResponse);
+            }
 
             ws.send(JSON.stringify(finalMsg));
           });
 
           stream.on("error", (err) => {
             console.error("Anthropic stream error: " + err.message);
+            var transferNumber = process.env.TRANSFER_PHONE_NUMBER || "+19047704464";
+            console.log(">>> ERROR TRANSFER to " + transferNumber);
             ws.send(
               JSON.stringify({
                 response_type: "response",
@@ -332,14 +334,14 @@ wss.on("connection", (ws, req) => {
                 content: "I am sorry, I am having a little trouble right now. Let me connect you with one of our team members.",
                 content_complete: true,
                 end_call: false,
-                transfer_call: {
-                  transfer_to: process.env.TRANSFER_PHONE_NUMBER || "+19047704464",
-                },
+                transfer_number: transferNumber,
               })
             );
           });
         } catch (err) {
           console.error("Anthropic API error: " + err.message);
+          var transferNumber = process.env.TRANSFER_PHONE_NUMBER || "+19047704464";
+          console.log(">>> CATCH TRANSFER to " + transferNumber);
           ws.send(
             JSON.stringify({
               response_type: "response",
@@ -347,9 +349,7 @@ wss.on("connection", (ws, req) => {
               content: "I am sorry, let me connect you with a team member who can help.",
               content_complete: true,
               end_call: false,
-              transfer_call: {
-                transfer_to: process.env.TRANSFER_PHONE_NUMBER || "+19047704464",
-              },
+              transfer_number: transferNumber,
             })
           );
         }
