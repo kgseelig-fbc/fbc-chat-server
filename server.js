@@ -318,11 +318,9 @@ wss.on("connection", (ws, req) => {
               end_call: false,
             };
 
-            if (shouldTransfer) {
-              finalMsg.transfer_call = {
-                transfer_to: process.env.TRANSFER_PHONE_NUMBER || "+19047704464",
-              };
-            }
+            transfer_call: {
+                  transfer_to: process.env.TRANSFER_PHONE_NUMBER || "+19047704464",
+                },
 
             ws.send(JSON.stringify(finalMsg));
           });
