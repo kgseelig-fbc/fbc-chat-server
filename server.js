@@ -1,16 +1,8 @@
-// ============================================================
-// FBC UNIFIED SERVER — Chat Widget + Retell AI Voice Agent
-// Same knowledge base powers BOTH channels
-// Deploy on Railway, connect to Retell AI + CallRail
-// ============================================================
-
 const express = require("express");
 const cors = require("cors");
 const Anthropic = require("@anthropic-ai/sdk").default;
 const { WebSocketServer } = require("ws");
 const http = require("http");
-const Retell = require("retell-sdk").default;
-const crypto = require("crypto");
 
 const app = express();
 app.use(cors());
@@ -19,39 +11,27 @@ app.use(express.static("public"));
 
 const PORT = process.env.PORT || 8080;
 
-// ============================================================
-// ANTHROPIC CLIENT
-// ============================================================
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ============================================================
-// RETELL CLIENT (for webhook signature verification)
-// ============================================================
-const retellClient = process.env.RETELL_API_KEY
-  ? new Retell({ apiKey: process.env.RETELL_API_KEY })
-  : null;
-
-// ============================================================
 // SHARED FBC KNOWLEDGE BASE
-// ============================================================
-// >>> THIS IS THE SINGLE SOURCE OF TRUTH <<<
 // Update this once → both chatbot AND voice agent get the update
 // ============================================================
 const FBC_KNOWLEDGE_BASE = `
 ABOUT: Operated under "Affordable Boating of North Florida." Part of the FBC system (Brunswick Corporation brand), founded 1989. 400+ locations worldwide, 90,000+ members. Private fleet — never rented to non-members. Year-round in NE Florida. We do regularly sell our used fleet vessels — members and the public can browse available boats for sale at affordableboating.com.
 
 LOCATIONS (all one club — home members get UNLIMITED access to ALL 5):
-  • Jacksonville Beach — 2315 Beach Blvd, Jax Beach 32250 (primary dock)
-  • St. Augustine (Camachee) — 3076 Harbor Dr, St. Augustine 32084
-  • Julington Creek East — 12807 San Jose Blvd, Jacksonville 32223
-  • Julington Creek West — same marina, west dock
-  • St. Augustine (Shipyard) — 820 Riberia St, St. Augustine 32084
+  Jacksonville Beach — 2315 Beach Blvd, Jax Beach 32250 (primary dock)
+  St. Augustine (Camachee) — 3076 Harbor Dr, St. Augustine 32084
+  Julington Creek East — 12807 San Jose Blvd, Jacksonville 32223
+  Julington Creek West — same marina, west dock
+  St. Augustine (Shipyard) — 820 Riberia St, St. Augustine 32084
 Hours vary by season; always check the app or call your home dock.
 
 MEMBERSHIP TIERS:
-  • Single — 1 person only
-  • Couple — 2 people in same household
-  • Family — 2 adults + dependents under 25
+  Single — 1 person only
+  Couple — 2 people in same household
+  Family — 2 adults + dependents under 25
   Upgrade anytime; prorated. Downgrade at renewal.
 
 COSTS: One-time entry fee + monthly dues (market-rate, varies). No fuel charges. Insurance included while on the water. Ask your local club for current pricing.
@@ -90,10 +70,8 @@ CONTACT:
 `;
 
 // ============================================================
-// SYSTEM PROMPTS (channel-specific)
+// CHAT WIDGET SYSTEM PROMPT
 // ============================================================
-
-// --- CHAT WIDGET PROMPT (existing) ---
 const CHAT_SYSTEM_PROMPT = `You are the Freedom Boat Club NE Florida virtual assistant. You help current and prospective members with questions about membership, reservations, locations, fleet, and policies.
 
 RULES:
@@ -107,7 +85,9 @@ RULES:
 KNOWLEDGE BASE:
 ${FBC_KNOWLEDGE_BASE}`;
 
-// --- VOICE AGENT PROMPT (optimized for spoken conversation) ---
+// ============================================================
+// VOICE AGENT SYSTEM PROMPT
+// ============================================================
 const VOICE_SYSTEM_PROMPT = `You are the Freedom Boat Club Northeast Florida phone assistant. You answer calls from members and prospective members.
 
 CRITICAL VOICE RULES:
@@ -134,7 +114,7 @@ KNOWLEDGE BASE:
 ${FBC_KNOWLEDGE_BASE}`;
 
 // ============================================================
-// CHAT WIDGET ENDPOINT (existing — no changes)
+// CHAT WIDGET ENDPOINT
 // ============================================================
 app.post("/api/chat", async (req, res) => {
   try {
@@ -165,34 +145,27 @@ app.post("/api/chat", async (req, res) => {
 });
 
 // ============================================================
-// RETELL AI WEBHOOK — call events (start, end, analyzed)
+// RETELL WEBHOOK ENDPOINT (for call event logging)
 // ============================================================
 app.post("/retell-webhook", (req, res) => {
-  // Optional: verify webhook signature
-  // if (retellClient) {
-  //   const signature = req.headers["x-retell-signature"];
-  //   const isValid = retellClient.verify(JSON.stringify(req.body), process.env.RETELL_API_KEY, signature);
-  //   if (!isValid) return res.status(401).send("Invalid signature");
-  // }
-
   const { event, call } = req.body;
 
   switch (event) {
     case "call_started":
-      console.log(`📞 Call started: ${call.call_id} from ${call.from_number}`);
+      console.log("Call started: " + call.call_id + " from " + (call.from_number || "unknown"));
       break;
     case "call_ended":
-      console.log(`📞 Call ended: ${call.call_id} | Duration: ${Math.round((call.end_timestamp - call.start_timestamp) / 1000)}s | Reason: ${call.disconnection_reason}`);
+      console.log("Call ended: " + call.call_id + " | Duration: " + Math.round((call.end_timestamp - call.start_timestamp) / 1000) + "s | Reason: " + call.disconnection_reason);
       break;
     case "call_analyzed":
-      console.log(`📊 Call analyzed: ${call.call_id}`);
+      console.log("Call analyzed: " + call.call_id);
       if (call.call_analysis) {
-        console.log(`   Summary: ${call.call_analysis.call_summary || "N/A"}`);
-        console.log(`   Sentiment: ${call.call_analysis.user_sentiment || "N/A"}`);
+        console.log("  Summary: " + (call.call_analysis.call_summary || "N/A"));
+        console.log("  Sentiment: " + (call.call_analysis.user_sentiment || "N/A"));
       }
       break;
     default:
-      console.log(`Unknown webhook event: ${event}`);
+      console.log("Unknown webhook event: " + event);
   }
 
   res.status(204).send();
@@ -202,18 +175,16 @@ app.post("/retell-webhook", (req, res) => {
 // HEALTH CHECK
 // ============================================================
 app.get("/health", (req, res) => {
-  res.json({
-    status: "ok",
-    channels: {
-      chat: "active",
-      voice: "active",
-    },
-    knowledgeBaseVersion: new Date().toISOString().split("T")[0],
-  });
+  res.json({ status: "ok", channels: { chat: "active", voice: "active" } });
 });
 
 // ============================================================
-// HTTP SERVER + WEBSOCKET FOR RETELL AI
+// CREATE HTTP SERVER
+// ============================================================
+const server = http.createServer(app);
+
+// ============================================================
+// WEBSOCKET SERVER FOR RETELL AI VOICE
 // ============================================================
 const wss = new WebSocketServer({ noServer: true });
 
@@ -226,30 +197,26 @@ server.on("upgrade", (request, socket, head) => {
     socket.destroy();
   }
 });
+
 wss.on("connection", (ws, req) => {
-  console.log("🎙️  Retell AI WebSocket connected");
+  console.log("Retell WebSocket connected");
 
-  // Conversation history for this call
-  const conversationHistory = [];
-  let callDetails = null;
+  var conversationHistory = [];
 
-  // Send initial config
   ws.send(
     JSON.stringify({
       response_type: "config",
       config: {
         auto_reconnect: true,
         call_details: true,
-        transcript_with_tool_calls: false,
       },
     })
   );
 
   ws.on("message", async (data) => {
     try {
-      const message = JSON.parse(data.toString());
+      var message = JSON.parse(data.toString());
 
-      // Handle ping/pong for keepalive
       if (message.interaction_type === "ping_pong") {
         ws.send(
           JSON.stringify({
@@ -260,29 +227,25 @@ wss.on("connection", (ws, req) => {
         return;
       }
 
-      // Store call details if provided
       if (message.interaction_type === "call_details") {
-        callDetails = message.call;
-        console.log(`📞 Call details received: ${callDetails?.from_number || "unknown"}`);
+        console.log("Call details received: " + (message.call && message.call.from_number ? message.call.from_number : "unknown"));
         return;
       }
 
-      // Handle conversation updates (no response needed)
       if (message.interaction_type === "update_only") {
         return;
       }
 
-      // Handle response requests
       if (
         message.interaction_type === "response_required" ||
         message.interaction_type === "reminder_required"
       ) {
-        const responseId = message.response_id;
+        var responseId = message.response_id;
 
-        // Build conversation from transcript
-        conversationHistory.length = 0; // Reset and rebuild from transcript
+        conversationHistory = [];
         if (message.transcript && Array.isArray(message.transcript)) {
-          for (const utterance of message.transcript) {
+          for (var i = 0; i < message.transcript.length; i++) {
+            var utterance = message.transcript[i];
             conversationHistory.push({
               role: utterance.role === "agent" ? "assistant" : "user",
               content: utterance.content,
@@ -290,27 +253,26 @@ wss.on("connection", (ws, req) => {
           }
         }
 
-        // If reminder (caller went silent), nudge them
         if (message.interaction_type === "reminder_required") {
           conversationHistory.push({
             role: "user",
-            content: "[The caller has been silent. Gently check if they're still there or if they need help with anything else.]",
+            content: "[The caller has been silent. Gently check if they are still there or need help with anything else.]",
           });
         }
 
-        // Call Anthropic API with voice-optimized prompt
         try {
-          const stream = anthropic.messages.stream({
+          var apiMessages = conversationHistory.length > 0
+            ? conversationHistory
+            : [{ role: "user", content: "Hello" }];
+
+          var stream = anthropic.messages.stream({
             model: "claude-sonnet-4-20250514",
-            max_tokens: 256, // Short for voice
+            max_tokens: 256,
             system: VOICE_SYSTEM_PROMPT,
-            messages: conversationHistory.length > 0
-              ? conversationHistory
-              : [{ role: "user", content: "Hello" }],
+            messages: apiMessages,
           });
 
-          // Stream response back to Retell word by word
-          let fullResponse = "";
+          var fullResponse = "";
 
           stream.on("text", (text) => {
             fullResponse += text;
@@ -326,36 +288,35 @@ wss.on("connection", (ws, req) => {
           });
 
           stream.on("finalMessage", () => {
-            // Check if AI wants to transfer the call
-            const shouldTransfer =
+            var shouldTransfer =
               fullResponse.toLowerCase().includes("let me connect you") ||
               fullResponse.toLowerCase().includes("let me transfer you") ||
               fullResponse.toLowerCase().includes("transfer you now");
 
-            ws.send(
-              JSON.stringify({
-                response_type: "response",
-                response_id: responseId,
-                content: "",
-                content_complete: true,
-                end_call: false,
-                // Signal transfer to Retell if needed
-                ...(shouldTransfer && {
-                  transfer_call: {
-                    transfer_to: process.env.TRANSFER_PHONE_NUMBER || "+19047704464",
-                  },
-                }),
-              })
-            );
+            var finalMsg = {
+              response_type: "response",
+              response_id: responseId,
+              content: "",
+              content_complete: true,
+              end_call: false,
+            };
+
+            if (shouldTransfer) {
+              finalMsg.transfer_call = {
+                transfer_to: process.env.TRANSFER_PHONE_NUMBER || "+19047704464",
+              };
+            }
+
+            ws.send(JSON.stringify(finalMsg));
           });
 
           stream.on("error", (err) => {
-            console.error("Anthropic stream error:", err.message);
+            console.error("Anthropic stream error: " + err.message);
             ws.send(
               JSON.stringify({
                 response_type: "response",
                 response_id: responseId,
-                content: "I'm sorry, I'm having a little trouble right now. Let me connect you with one of our team members.",
+                content: "I am sorry, I am having a little trouble right now. Let me connect you with one of our team members.",
                 content_complete: true,
                 end_call: false,
                 transfer_call: {
@@ -365,12 +326,12 @@ wss.on("connection", (ws, req) => {
             );
           });
         } catch (err) {
-          console.error("Anthropic API error:", err.message);
+          console.error("Anthropic API error: " + err.message);
           ws.send(
             JSON.stringify({
               response_type: "response",
               response_id: responseId,
-              content: "I'm sorry, let me connect you with a team member who can help.",
+              content: "I am sorry, let me connect you with a team member who can help.",
               content_complete: true,
               end_call: false,
               transfer_call: {
@@ -381,16 +342,16 @@ wss.on("connection", (ws, req) => {
         }
       }
     } catch (err) {
-      console.error("WebSocket message error:", err.message);
+      console.error("WebSocket message error: " + err.message);
     }
   });
 
   ws.on("close", () => {
-    console.log("🎙️  Retell AI WebSocket disconnected");
+    console.log("Retell WebSocket disconnected");
   });
 
   ws.on("error", (err) => {
-    console.error("WebSocket error:", err.message);
+    console.error("WebSocket error: " + err.message);
   });
 });
 
@@ -398,12 +359,10 @@ wss.on("connection", (ws, req) => {
 // START SERVER
 // ============================================================
 server.listen(PORT, () => {
-  console.log(`
-╔════════════════════════════════════════════════╗
-║  FBC Unified Server                            ║
-║  Chat: http://localhost:${PORT}/api/chat          ║
-║  Voice WS: ws://localhost:${PORT}/llm-websocket   ║
-║  Webhook: http://localhost:${PORT}/retell-webhook  ║
-╚════════════════════════════════════════════════╝
-  `);
+  console.log("========================================");
+  console.log("  FBC Unified Server");
+  console.log("  Chat:    http://localhost:" + PORT + "/api/chat");
+  console.log("  Voice:   ws://localhost:" + PORT + "/llm-websocket");
+  console.log("  Webhook: http://localhost:" + PORT + "/retell-webhook");
+  console.log("========================================");
 });
