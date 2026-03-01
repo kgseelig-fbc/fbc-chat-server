@@ -209,13 +209,14 @@ wss.on("connection", (ws, req) => {
 
   var conversationHistory = [];
 
+  // Send initial greeting immediately
   ws.send(
     JSON.stringify({
-      response_type: "config",
-      config: {
-        auto_reconnect: true,
-        call_details: true,
-      },
+      response_type: "response",
+      response_id: 0,
+      content: "Thank you for calling Freedom Boat Club Northeast Florida! I'm your virtual assistant. How can I help you today?",
+      content_complete: true,
+      end_call: false,
     })
   );
 
