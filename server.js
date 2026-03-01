@@ -60,7 +60,7 @@ WEATHER: Safety first. Dock staff may cancel if conditions are unsafe. No penalt
 
 TRAINING: All new members complete a checkout (skills assessment) before solo boating. Additional advanced training available. Captains are available for hire.
 
-FLEET: 225+ vessels across NE Florida locations. Mix of pontoons, deck boats, center consoles, bay boats, and bowriders. Boat availability varies by location and season.
+FLEET: 135 vessels across NE Florida locations. Mix of pontoons, deck boats, center consoles, bay boats, and bowriders. Boat availability varies by location and season.
 
 PEACE OF MIND ELITE (POM): Optional deductible reduction program. Cost: $750/year or $70/month (first monthly payment prorated based on enrollment date, then included with regular monthly dues). Requires 1-year commitment, non-refundable, auto-renews unless member opts out. Standard Coverage (included with membership): $2,500 deductible for Liability, $2,500 deductible for Physical Damage, $1M Liability coverage, $300K Uninsured Boater coverage, $5K Medical Claim coverage, Towing for mechanical issues only. Peace of Mind Elite ($750/yr): $0 deductible for Liability, $0 deductible for Physical Damage, all standard coverages PLUS Towing for operator error, Deductible coverage for 2 incidents per plan year (home or reciprocal), Equipment coverage for 2 anchors and 2 props per plan year. POM Elite is a great value — always encourage members to purchase or renew. NOTE: When mentioning POM, always clarify it stands for Peace of Mind Elite and is the deductible reduction program — never say Proof of Means.
 
@@ -209,14 +209,13 @@ wss.on("connection", (ws, req) => {
 
   var conversationHistory = [];
 
-  // Send initial greeting immediately
   ws.send(
     JSON.stringify({
-      response_type: "response",
-      response_id: 0,
-      content: "Thank you for calling Freedom Boat Club Northeast Florida! I'm your virtual assistant. How can I help you today?",
-      content_complete: true,
-      end_call: false,
+      response_type: "config",
+      config: {
+        auto_reconnect: true,
+        call_details: true,
+      },
     })
   );
 
