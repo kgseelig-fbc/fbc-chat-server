@@ -40,11 +40,16 @@ var nodemailer = require("nodemailer");
 function getGmailTransport() {
   if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) return null;
   return nodemailer.createTransport({
-    service: "gmail",
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false,
     auth: {
       user: process.env.GMAIL_USER,
       pass: process.env.GMAIL_APP_PASSWORD
-    }
+    },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000
   });
 }
 
