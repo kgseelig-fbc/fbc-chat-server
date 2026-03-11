@@ -16,6 +16,11 @@ app.use(express.static(path.join(__dirname, "public")));
 var leads = [];
 
 // ---------------------------------------------------------------------------
+// In-memory conversation storage (persists until Railway restarts)
+// ---------------------------------------------------------------------------
+var conversations = {};
+
+// ---------------------------------------------------------------------------
 // Email routing config (set via Railway environment variables)
 // ---------------------------------------------------------------------------
 function getEmailForLocation(location) {
@@ -202,6 +207,7 @@ app.post("/api/chat", function(req, res) {
   }
 
   var messages = req.body.messages || [];
+  var convId = req.body.conversationId || "unknown";
   var clean = messages.slice(-50).map(function(m) {
     return {
       role: m.role === "assistant" ? "assistant" : "user",
@@ -215,12 +221,67 @@ app.post("/api/chat", function(req, res) {
       return res.status(502).json({ error: "AI unavailable" });
     }
     if (data.content && data.content[0]) {
-      res.json({ reply: data.content[0].text });
+      var reply = data.content[0].text;
+
+      // Log conversation
+      if (!conversations[convId]) {
+        conversations[convId] = {
+          id: convId,
+          startedAt: new Date().toISOString(),
+          messages: []
+        };
+      }
+      var conv = conversations[convId];
+      conv.lastMessageAt = new Date().toISOString();
+      // Store just the latest user message and reply
+      var lastUserMsg = clean.length > 0 ? clean[clean.length - 1].content : "";
+      conv.messages.push({ role: "user", content: lastUserMsg, timestamp: new Date().toISOString() });
+      conv.messages.push({ role: "assistant", content: reply, timestamp: new Date().toISOString() });
+      // Keep max 1000 conversations
+      var convKeys = Object.keys(conversations);
+      if (convKeys.length > 1000) {
+        delete conversations[convKeys[0]];
+      }
+
+      res.json({ reply: reply });
     } else {
       console.error("Unexpected response:", JSON.stringify(data).slice(0, 500));
       res.status(502).json({ error: "AI unavailable" });
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// Conversations API (password protected)
+// ---------------------------------------------------------------------------
+app.get("/api/conversations", function(req, res) {
+  var pw = process.env.ADMIN_PASSWORD || "fbc2024";
+  if (req.query.password !== pw) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  var list = Object.keys(conversations).map(function(k) {
+    var c = conversations[k];
+    return {
+      id: c.id,
+      startedAt: c.startedAt,
+      lastMessageAt: c.lastMessageAt,
+      messageCount: c.messages.length,
+      preview: c.messages.length > 0 ? c.messages[0].content.slice(0, 100) : ""
+    };
+  }).sort(function(a, b) {
+    return new Date(b.lastMessageAt) - new Date(a.lastMessageAt);
+  });
+  res.json({ conversations: list, total: list.length });
+});
+
+app.get("/api/conversations/:id", function(req, res) {
+  var pw = process.env.ADMIN_PASSWORD || "fbc2024";
+  if (req.query.password !== pw) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  var conv = conversations[req.params.id];
+  if (!conv) return res.status(404).json({ error: "Not found" });
+  res.json(conv);
 });
 
 // ---------------------------------------------------------------------------
