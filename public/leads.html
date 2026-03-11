@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FBC Leads Dashboard</title>
+<title>FBC Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -11,6 +11,12 @@ body{font-family:'DM Sans',sans-serif;background:#F0F2F5;min-height:100vh;color:
 .top{background:linear-gradient(135deg,#0B1D3A,#132D54);padding:24px 32px;color:white}
 .top h1{font-family:'Playfair Display',serif;font-size:24px;font-weight:700}
 .top p{font-size:13px;opacity:.6;margin-top:4px}
+.tabs{display:flex;gap:0;padding:0 32px;background:white;border-bottom:2px solid #EEF1F4}
+.tab{padding:14px 24px;font-size:14px;font-weight:600;color:#8E99A8;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .2s}
+.tab.active{color:#0B1D3A;border-bottom-color:#1B6EC2}
+.tab:hover{color:#0B1D3A}
+.panel{display:none}
+.panel.active{display:block}
 .stats{display:flex;gap:16px;padding:24px 32px;flex-wrap:wrap}
 .stat{background:white;border-radius:12px;padding:20px 24px;flex:1;min-width:140px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
 .stat .num{font-size:28px;font-weight:700;color:#0B1D3A}
@@ -24,6 +30,7 @@ table{width:100%;border-collapse:collapse;background:white;border-radius:12px;ov
 th{background:#0B1D3A;color:white;padding:14px 16px;text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
 td{padding:14px 16px;border-bottom:1px solid #EEF1F4;font-size:13.5px}
 tr:hover td{background:#F8FAFB}
+tr{cursor:pointer}
 .badge{display:inline-block;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;text-transform:uppercase}
 .badge.new{background:#DCFCE7;color:#166534}
 .badge.contacted{background:#DBEAFE;color:#1E40AF}
@@ -34,143 +41,51 @@ tr:hover td{background:#F8FAFB}
 .empty{text-align:center;padding:60px 32px;color:#8E99A8;font-size:15px}
 .refresh{padding:8px 16px;background:#1B6EC2;color:white;border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:500}
 .refresh:hover{background:#155A9C}
-@media(max-width:640px){.stats{padding:16px}.stat{min-width:100%}.controls{padding:0 16px 12px}.table-wrap{padding:0 16px 16px}.top{padding:20px 16px}}
+.conv-viewer{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:100;justify-content:center;align-items:center}
+.conv-viewer.open{display:flex}
+.conv-box{background:white;border-radius:16px;width:500px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.conv-header{padding:20px 24px;border-bottom:1px solid #EEF1F4;display:flex;justify-content:space-between;align-items:center}
+.conv-header h3{font-size:16px;font-weight:600}
+.conv-close{width:32px;height:32px;border:none;background:#F0F2F5;border-radius:8px;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center}
+.conv-close:hover{background:#D8DDE5}
+.conv-messages{flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:12px}
+.conv-msg{max-width:85%;padding:10px 14px;border-radius:12px;font-size:13.5px;line-height:1.5;word-wrap:break-word}
+.conv-msg.user{align-self:flex-end;background:linear-gradient(135deg,#0B1D3A,#132D54);color:white;border-bottom-right-radius:4px}
+.conv-msg.assistant{align-self:flex-start;background:#F0F2F5;color:#2C3544;border-bottom-left-radius:4px}
+.conv-msg .time{font-size:10px;opacity:.5;margin-top:4px}
+@media(max-width:640px){.stats{padding:16px}.stat{min-width:100%}.controls{padding:0 16px 12px}.table-wrap{padding:0 16px 16px}.top{padding:20px 16px}.tabs{padding:0 16px}.conv-box{width:100%;max-width:100%;height:100%;max-height:100%;border-radius:0}}
 </style>
 </head>
 <body>
-<div class="top">
-  <h1>FBC Lead Dashboard</h1>
-  <p>Freedom Boat Club of NE Florida — Chat Lead Capture</p>
+<div class="top"><h1>FBC Dashboard</h1><p>Freedom Boat Club of NE Florida — Chat & Lead Management</p></div>
+<div class="tabs"><div class="tab active" onclick="switchTab('leads')">Leads</div><div class="tab" onclick="switchTab('conversations')">Conversations</div></div>
+<div class="panel active" id="panel-leads">
+  <div class="stats"><div class="stat"><div class="num" id="totalLeads">0</div><div class="label">Total Leads</div></div><div class="stat"><div class="num" id="newLeads">0</div><div class="label">New</div></div><div class="stat"><div class="num" id="contactedLeads">0</div><div class="label">Contacted</div></div><div class="stat"><div class="num" id="convertedLeads">0</div><div class="label">Converted</div></div></div>
+  <div class="controls"><input type="text" id="searchLeads" placeholder="Search leads..." oninput="filterLeads()"><select id="filterStatus" onchange="filterLeads()"><option value="">All Statuses</option><option value="new">New</option><option value="contacted">Contacted</option><option value="converted">Converted</option><option value="lost">Lost</option></select><select id="filterLocation" onchange="filterLeads()"><option value="">All Locations</option><option value="jacksonville">Jacksonville Beach</option><option value="julington">Julington Creek</option><option value="st. augustine">St. Augustine</option><option value="general">General</option></select><button class="refresh" onclick="loadLeads()">Refresh</button></div>
+  <div class="table-wrap"><table><thead><tr><th>Date</th><th>Name</th><th>Phone</th><th>Email</th><th>Zip</th><th>Location</th><th>Status</th><th>Actions</th></tr></thead><tbody id="leadsBody"></tbody></table><div class="empty" id="emptyLeads" style="display:none">No leads captured yet.</div></div>
 </div>
-<div class="stats" id="stats">
-  <div class="stat"><div class="num" id="totalLeads">0</div><div class="label">Total Leads</div></div>
-  <div class="stat"><div class="num" id="newLeads">0</div><div class="label">New</div></div>
-  <div class="stat"><div class="num" id="contactedLeads">0</div><div class="label">Contacted</div></div>
-  <div class="stat"><div class="num" id="convertedLeads">0</div><div class="label">Converted</div></div>
+<div class="panel" id="panel-conversations">
+  <div class="stats"><div class="stat"><div class="num" id="totalConvs">0</div><div class="label">Total Conversations</div></div><div class="stat"><div class="num" id="todayConvs">0</div><div class="label">Today</div></div><div class="stat"><div class="num" id="weekConvs">0</div><div class="label">This Week</div></div><div class="stat"><div class="num" id="avgMsgs">0</div><div class="label">Avg Messages</div></div></div>
+  <div class="controls"><input type="text" id="searchConvs" placeholder="Search conversations..." oninput="filterConvs()"><button class="refresh" onclick="loadConversations()">Refresh</button></div>
+  <div class="table-wrap"><table><thead><tr><th>Started</th><th>Last Active</th><th>Messages</th><th>Preview</th></tr></thead><tbody id="convsBody"></tbody></table><div class="empty" id="emptyConvs" style="display:none">No conversations yet.</div></div>
 </div>
-<div class="controls">
-  <input type="text" id="search" placeholder="Search leads by name, email, phone, location..." oninput="filterLeads()">
-  <select id="filterStatus" onchange="filterLeads()">
-    <option value="">All Statuses</option>
-    <option value="new">New</option>
-    <option value="contacted">Contacted</option>
-    <option value="converted">Converted</option>
-    <option value="lost">Lost</option>
-  </select>
-  <select id="filterLocation" onchange="filterLeads()">
-    <option value="">All Locations</option>
-    <option value="jacksonville">Jacksonville Beach</option>
-    <option value="julington">Julington Creek</option>
-    <option value="st. augustine">St. Augustine</option>
-    <option value="general">General</option>
-  </select>
-  <button class="refresh" onclick="loadLeads()">Refresh</button>
-</div>
-<div class="table-wrap">
-  <table id="leadsTable">
-    <thead>
-      <tr>
-        <th>Date</th>
-        <th>Name</th>
-        <th>Phone</th>
-        <th>Email</th>
-        <th>Zip</th>
-        <th>Location Interest</th>
-        <th>Status</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody id="leadsBody"></tbody>
-  </table>
-  <div class="empty" id="empty" style="display:none">No leads captured yet. They will appear here when prospects ask about pricing or joining.</div>
-</div>
+<div class="conv-viewer" id="convViewer"><div class="conv-box"><div class="conv-header"><h3 id="convTitle">Conversation</h3><button class="conv-close" onclick="closeConv()">&times;</button></div><div class="conv-messages" id="convMessages"></div></div></div>
 <script>
-var allLeads = [];
-var pw = new URLSearchParams(window.location.search).get("password") || "";
-
-function loadLeads() {
-  var xhr = new XMLHttpRequest();
-  xhr.open("GET", "/api/leads?password=" + encodeURIComponent(pw));
-  xhr.onload = function() {
-    try {
-      var data = JSON.parse(xhr.responseText);
-      allLeads = data.leads || [];
-      updateStats();
-      filterLeads();
-    } catch(e) {
-      console.error("Load error:", e);
-    }
-  };
-  xhr.send();
-}
-
-function updateStats() {
-  document.getElementById("totalLeads").textContent = allLeads.length;
-  var counts = {new:0, contacted:0, converted:0};
-  for (var i = 0; i < allLeads.length; i++) {
-    var s = allLeads[i].status || "new";
-    if (counts[s] !== undefined) counts[s]++;
-  }
-  document.getElementById("newLeads").textContent = counts.new;
-  document.getElementById("contactedLeads").textContent = counts.contacted;
-  document.getElementById("convertedLeads").textContent = counts.converted;
-}
-
-function filterLeads() {
-  var q = document.getElementById("search").value.toLowerCase();
-  var status = document.getElementById("filterStatus").value;
-  var loc = document.getElementById("filterLocation").value.toLowerCase();
-  var filtered = allLeads.filter(function(l) {
-    var matchQ = !q || (l.name + l.email + l.phone + l.zip + l.locationInterest).toLowerCase().indexOf(q) !== -1;
-    var matchS = !status || l.status === status;
-    var matchL = !loc || (l.locationInterest || "general").toLowerCase().indexOf(loc) !== -1;
-    return matchQ && matchS && matchL;
-  });
-  renderTable(filtered);
-}
-
-function renderTable(list) {
-  var body = document.getElementById("leadsBody");
-  var empty = document.getElementById("empty");
-  if (list.length === 0) {
-    body.innerHTML = "";
-    empty.style.display = "block";
-    return;
-  }
-  empty.style.display = "none";
-  var html = "";
-  for (var i = 0; i < list.length; i++) {
-    var l = list[i];
-    var d = new Date(l.capturedAt);
-    var date = (d.getMonth()+1) + "/" + d.getDate() + "/" + d.getFullYear() + " " + d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
-    html += "<tr>";
-    html += "<td>" + date + "</td>";
-    html += "<td><strong>" + (l.name || "-") + "</strong></td>";
-    html += "<td><a href='tel:" + l.phone + "'>" + (l.phone || "-") + "</a></td>";
-    html += "<td><a href='mailto:" + l.email + "'>" + (l.email || "-") + "</a></td>";
-    html += "<td>" + (l.zip || "-") + "</td>";
-    html += "<td>" + (l.locationInterest || "General") + "</td>";
-    html += "<td><span class='badge " + (l.status || "new") + "'>" + (l.status || "new") + "</span></td>";
-    html += "<td>";
-    html += "<button class='status-btn' onclick='setStatus(\"" + l.id + "\",\"contacted\")'>Contacted</button>";
-    html += "<button class='status-btn' onclick='setStatus(\"" + l.id + "\",\"converted\")'>Converted</button>";
-    html += "<button class='status-btn' onclick='setStatus(\"" + l.id + "\",\"lost\")'>Lost</button>";
-    html += "</td>";
-    html += "</tr>";
-  }
-  body.innerHTML = html;
-}
-
-function setStatus(id, status) {
-  var xhr = new XMLHttpRequest();
-  xhr.open("POST", "/api/leads/status");
-  xhr.setRequestHeader("Content-Type", "application/json");
-  xhr.onload = function() { loadLeads(); };
-  xhr.send(JSON.stringify({ id: id, status: status, password: pw }));
-}
-
-loadLeads();
-setInterval(loadLeads, 30000);
+var allLeads=[],allConvs=[],pw=new URLSearchParams(window.location.search).get("password")||"";
+function switchTab(n){var t=document.querySelectorAll(".tab"),p=document.querySelectorAll(".panel");for(var i=0;i<t.length;i++){t[i].className="tab";p[i].className="panel"}if(n==="leads"){t[0].className="tab active";document.getElementById("panel-leads").className="panel active"}else{t[1].className="tab active";document.getElementById("panel-conversations").className="panel active";loadConversations()}}
+function loadLeads(){var x=new XMLHttpRequest();x.open("GET","/api/leads?password="+encodeURIComponent(pw));x.onload=function(){try{var d=JSON.parse(x.responseText);allLeads=d.leads||[];updateLeadStats();filterLeads()}catch(e){}};x.send()}
+function updateLeadStats(){document.getElementById("totalLeads").textContent=allLeads.length;var c={new:0,contacted:0,converted:0};for(var i=0;i<allLeads.length;i++){var s=allLeads[i].status||"new";if(c[s]!==undefined)c[s]++}document.getElementById("newLeads").textContent=c.new;document.getElementById("contactedLeads").textContent=c.contacted;document.getElementById("convertedLeads").textContent=c.converted}
+function filterLeads(){var q=(document.getElementById("searchLeads").value||"").toLowerCase(),st=document.getElementById("filterStatus").value,lo=document.getElementById("filterLocation").value.toLowerCase();var f=allLeads.filter(function(l){return(!q||(l.name+l.email+l.phone+l.zip+l.locationInterest).toLowerCase().indexOf(q)!==-1)&&(!st||l.status===st)&&(!lo||(l.locationInterest||"general").toLowerCase().indexOf(lo)!==-1)});renderLeads(f)}
+function renderLeads(list){var b=document.getElementById("leadsBody"),e=document.getElementById("emptyLeads");if(!list.length){b.innerHTML="";e.style.display="block";return}e.style.display="none";var h="";for(var i=0;i<list.length;i++){var l=list[i],d=new Date(l.capturedAt),ds=(d.getMonth()+1)+"/"+d.getDate()+"/"+d.getFullYear()+" "+d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});h+="<tr><td>"+ds+"</td><td><strong>"+(l.name||"-")+"</strong></td><td><a href='tel:"+l.phone+"'>"+(l.phone||"-")+"</a></td><td><a href='mailto:"+l.email+"'>"+(l.email||"-")+"</a></td><td>"+(l.zip||"-")+"</td><td>"+(l.locationInterest||"General")+"</td><td><span class='badge "+(l.status||"new")+"'>"+(l.status||"new")+"</span></td><td><button class='status-btn' onclick='event.stopPropagation();setStatus(\""+l.id+"\",\"contacted\")'>Contacted</button><button class='status-btn' onclick='event.stopPropagation();setStatus(\""+l.id+"\",\"converted\")'>Converted</button><button class='status-btn' onclick='event.stopPropagation();setStatus(\""+l.id+"\",\"lost\")'>Lost</button></td></tr>"}b.innerHTML=h}
+function setStatus(id,s){var x=new XMLHttpRequest();x.open("POST","/api/leads/status");x.setRequestHeader("Content-Type","application/json");x.onload=function(){loadLeads()};x.send(JSON.stringify({id:id,status:s,password:pw}))}
+function loadConversations(){var x=new XMLHttpRequest();x.open("GET","/api/conversations?password="+encodeURIComponent(pw));x.onload=function(){try{var d=JSON.parse(x.responseText);allConvs=d.conversations||[];updateConvStats();filterConvs()}catch(e){}};x.send()}
+function updateConvStats(){var now=new Date(),today=new Date(now.getFullYear(),now.getMonth(),now.getDate()),week=new Date(today.getTime()-7*864e5),tc=0,wc=0,tm=0;for(var i=0;i<allConvs.length;i++){var d=new Date(allConvs[i].startedAt);if(d>=today)tc++;if(d>=week)wc++;tm+=allConvs[i].messageCount||0}document.getElementById("totalConvs").textContent=allConvs.length;document.getElementById("todayConvs").textContent=tc;document.getElementById("weekConvs").textContent=wc;document.getElementById("avgMsgs").textContent=allConvs.length?Math.round(tm/allConvs.length):0}
+function filterConvs(){var q=(document.getElementById("searchConvs").value||"").toLowerCase();var f=allConvs.filter(function(c){return!q||(c.preview||"").toLowerCase().indexOf(q)!==-1});renderConvs(f)}
+function renderConvs(list){var b=document.getElementById("convsBody"),e=document.getElementById("emptyConvs");if(!list.length){b.innerHTML="";e.style.display="block";return}e.style.display="none";var h="";for(var i=0;i<list.length;i++){var c=list[i],s=new Date(c.startedAt),l=new Date(c.lastMessageAt);var ss=(s.getMonth()+1)+"/"+s.getDate()+" "+s.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});var ls=(l.getMonth()+1)+"/"+l.getDate()+" "+l.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});var pv=(c.preview||"-").substring(0,80)+(c.preview&&c.preview.length>80?"...":"");h+="<tr onclick='openConv(\""+c.id+"\")'><td>"+ss+"</td><td>"+ls+"</td><td>"+c.messageCount+"</td><td>"+pv+"</td></tr>"}b.innerHTML=h}
+function openConv(id){var x=new XMLHttpRequest();x.open("GET","/api/conversations/"+id+"?password="+encodeURIComponent(pw));x.onload=function(){try{var c=JSON.parse(x.responseText),d=new Date(c.startedAt);document.getElementById("convTitle").textContent="Conversation — "+(d.getMonth()+1)+"/"+d.getDate()+"/"+d.getFullYear();var msgs=c.messages||[],h="";for(var i=0;i<msgs.length;i++){var m=msgs[i],t=new Date(m.timestamp),ts=t.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});h+="<div class='conv-msg "+m.role+"'>"+m.content.replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>")+"<div class='time'>"+ts+"</div></div>"}document.getElementById("convMessages").innerHTML=h;document.getElementById("convViewer").className="conv-viewer open"}catch(e){}};x.send()}
+function closeConv(){document.getElementById("convViewer").className="conv-viewer"}
+document.getElementById("convViewer").addEventListener("click",function(e){if(e.target===this)closeConv()});
+loadLeads();setInterval(loadLeads,30000);
 </script>
 </body>
 </html>
