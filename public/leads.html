@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FBC Leads Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'DM Sans',sans-serif;background:#F0F2F5;min-height:100vh;color:#2C3544}
+.top{background:linear-gradient(135deg,#0B1D3A,#132D54);padding:24px 32px;color:white}
+.top h1{font-family:'Playfair Display',serif;font-size:24px;font-weight:700}
+.top p{font-size:13px;opacity:.6;margin-top:4px}
+.stats{display:flex;gap:16px;padding:24px 32px;flex-wrap:wrap}
+.stat{background:white;border-radius:12px;padding:20px 24px;flex:1;min-width:140px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.stat .num{font-size:28px;font-weight:700;color:#0B1D3A}
+.stat .label{font-size:12px;color:#8E99A8;margin-top:4px;text-transform:uppercase;letter-spacing:.5px}
+.controls{padding:0 32px 16px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.controls input,.controls select{padding:10px 14px;border:1.5px solid #D8DDE5;border-radius:10px;font-family:inherit;font-size:13px;outline:none;background:white}
+.controls input:focus,.controls select:focus{border-color:#1B6EC2}
+.controls input{flex:1;min-width:200px}
+.table-wrap{padding:0 32px 32px;overflow-x:auto}
+table{width:100%;border-collapse:collapse;background:white;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+th{background:#0B1D3A;color:white;padding:14px 16px;text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+td{padding:14px 16px;border-bottom:1px solid #EEF1F4;font-size:13.5px}
+tr:hover td{background:#F8FAFB}
+.badge{display:inline-block;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;text-transform:uppercase}
+.badge.new{background:#DCFCE7;color:#166534}
+.badge.contacted{background:#DBEAFE;color:#1E40AF}
+.badge.converted{background:#FEF3C7;color:#92400E}
+.badge.lost{background:#FEE2E2;color:#991B1B}
+.status-btn{padding:4px 8px;border:1px solid #D8DDE5;border-radius:6px;background:white;cursor:pointer;font-family:inherit;font-size:11px;margin:0 2px;transition:all .15s}
+.status-btn:hover{background:#0B1D3A;color:white;border-color:#0B1D3A}
+.empty{text-align:center;padding:60px 32px;color:#8E99A8;font-size:15px}
+.refresh{padding:8px 16px;background:#1B6EC2;color:white;border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:500}
+.refresh:hover{background:#155A9C}
+@media(max-width:640px){.stats{padding:16px}.stat{min-width:100%}.controls{padding:0 16px 12px}.table-wrap{padding:0 16px 16px}.top{padding:20px 16px}}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>FBC Lead Dashboard</h1>
+  <p>Freedom Boat Club of NE Florida — Chat Lead Capture</p>
+</div>
+<div class="stats" id="stats">
+  <div class="stat"><div class="num" id="totalLeads">0</div><div class="label">Total Leads</div></div>
+  <div class="stat"><div class="num" id="newLeads">0</div><div class="label">New</div></div>
+  <div class="stat"><div class="num" id="contactedLeads">0</div><div class="label">Contacted</div></div>
+  <div class="stat"><div class="num" id="convertedLeads">0</div><div class="label">Converted</div></div>
+</div>
+<div class="controls">
+  <input type="text" id="search" placeholder="Search leads by name, email, phone, location..." oninput="filterLeads()">
+  <select id="filterStatus" onchange="filterLeads()">
+    <option value="">All Statuses</option>
+    <option value="new">New</option>
+    <option value="contacted">Contacted</option>
+    <option value="converted">Converted</option>
+    <option value="lost">Lost</option>
+  </select>
+  <select id="filterLocation" onchange="filterLeads()">
+    <option value="">All Locations</option>
+    <option value="jacksonville">Jacksonville Beach</option>
+    <option value="julington">Julington Creek</option>
+    <option value="st. augustine">St. Augustine</option>
+    <option value="general">General</option>
+  </select>
+  <button class="refresh" onclick="loadLeads()">Refresh</button>
+</div>
+<div class="table-wrap">
+  <table id="leadsTable">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Name</th>
+        <th>Phone</th>
+        <th>Email</th>
+        <th>Zip</th>
+        <th>Location Interest</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="leadsBody"></tbody>
+  </table>
+  <div class="empty" id="empty" style="display:none">No leads captured yet. They will appear here when prospects ask about pricing or joining.</div>
+</div>
+<script>
+var allLeads = [];
+var pw = new URLSearchParams(window.location.search).get("password") || "";
+
+function loadLeads() {
+  var xhr = new XMLHttpRequest();
+  xhr.open("GET", "/api/leads?password=" + encodeURIComponent(pw));
+  xhr.onload = function() {
+    try {
+      var data = JSON.parse(xhr.responseText);
+      allLeads = data.leads || [];
+      updateStats();
+      filterLeads();
+    } catch(e) {
+      console.error("Load error:", e);
+    }
+  };
+  xhr.send();
+}
+
+function updateStats() {
+  document.getElementById("totalLeads").textContent = allLeads.length;
+  var counts = {new:0, contacted:0, converted:0};
+  for (var i = 0; i < allLeads.length; i++) {
+    var s = allLeads[i].status || "new";
+    if (counts[s] !== undefined) counts[s]++;
+  }
+  document.getElementById("newLeads").textContent = counts.new;
+  document.getElementById("contactedLeads").textContent = counts.contacted;
+  document.getElementById("convertedLeads").textContent = counts.converted;
+}
+
+function filterLeads() {
+  var q = document.getElementById("search").value.toLowerCase();
+  var status = document.getElementById("filterStatus").value;
+  var loc = document.getElementById("filterLocation").value.toLowerCase();
+  var filtered = allLeads.filter(function(l) {
+    var matchQ = !q || (l.name + l.email + l.phone + l.zip + l.locationInterest).toLowerCase().indexOf(q) !== -1;
+    var matchS = !status || l.status === status;
+    var matchL = !loc || (l.locationInterest || "general").toLowerCase().indexOf(loc) !== -1;
+    return matchQ && matchS && matchL;
+  });
+  renderTable(filtered);
+}
+
+function renderTable(list) {
+  var body = document.getElementById("leadsBody");
+  var empty = document.getElementById("empty");
+  if (list.length === 0) {
+    body.innerHTML = "";
+    empty.style.display = "block";
+    return;
+  }
+  empty.style.display = "none";
+  var html = "";
+  for (var i = 0; i < list.length; i++) {
+    var l = list[i];
+    var d = new Date(l.capturedAt);
+    var date = (d.getMonth()+1) + "/" + d.getDate() + "/" + d.getFullYear() + " " + d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+    html += "<tr>";
+    html += "<td>" + date + "</td>";
+    html += "<td><strong>" + (l.name || "-") + "</strong></td>";
+    html += "<td><a href='tel:" + l.phone + "'>" + (l.phone || "-") + "</a></td>";
+    html += "<td><a href='mailto:" + l.email + "'>" + (l.email || "-") + "</a></td>";
+    html += "<td>" + (l.zip || "-") + "</td>";
+    html += "<td>" + (l.locationInterest || "General") + "</td>";
+    html += "<td><span class='badge " + (l.status || "new") + "'>" + (l.status || "new") + "</span></td>";
+    html += "<td>";
+    html += "<button class='status-btn' onclick='setStatus(\"" + l.id + "\",\"contacted\")'>Contacted</button>";
+    html += "<button class='status-btn' onclick='setStatus(\"" + l.id + "\",\"converted\")'>Converted</button>";
+    html += "<button class='status-btn' onclick='setStatus(\"" + l.id + "\",\"lost\")'>Lost</button>";
+    html += "</td>";
+    html += "</tr>";
+  }
+  body.innerHTML = html;
+}
+
+function setStatus(id, status) {
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/leads/status");
+  xhr.setRequestHeader("Content-Type", "application/json");
+  xhr.onload = function() { loadLeads(); };
+  xhr.send(JSON.stringify({ id: id, status: status, password: pw }));
+}
+
+loadLeads();
+setInterval(loadLeads, 30000);
+</script>
+</body>
+</html>
