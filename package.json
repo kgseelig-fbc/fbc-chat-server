@@ -1,16 +1,15 @@
 {
-  "name": "fbc-unified-server",
+  "name": "fbc-chat-server",
   "version": "2.0.0",
-  "description": "FBC Chat + Voice AI Server",
+  "description": "Freedom Boat Club NE Florida Chat Server with Lead Capture",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
+    "express": "^4.18.2",
     "cors": "^2.8.5",
-    "express": "^4.21.0",
-    "ws": "^8.18.0"
+    "nodemailer": "^6.9.8"
   },
   "engines": {
     "node": ">=18.0.0"
