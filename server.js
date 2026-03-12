@@ -10,6 +10,13 @@ var PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json({ limit: "100kb" }));
+// Redirect dashboard subdomain to /leads
+app.use((req, res, next) => {
+  if (req.hostname === 'chatdashboard.freedomboatclub.ai' && req.path === '/') {
+    return res.redirect('/leads');
+  }
+  next();
+});
 app.use(express.static(path.join(__dirname, "public")));
 // Redirect dashboard subdomain to /leads
 app.use((req, res, next) => {
