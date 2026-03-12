@@ -5,26 +5,12 @@ var https = require("https");
 var nodemailer = require("nodemailer");
 
 var app = express();
-app.set('trust proxy', 1);
 var PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json({ limit: "100kb" }));
-// Redirect dashboard subdomain to /leads
-app.use((req, res, next) => {
-  if (req.hostname === 'chatdashboard.freedomboatclub.ai' && req.path === '/') {
-    return res.redirect('/leads');
-  }
-  next();
-});
 app.use(express.static(path.join(__dirname, "public")));
-// Redirect dashboard subdomain to /leads
-app.use((req, res, next) => {
-  if (req.hostname === 'chatdashboard.freedomboatclub.ai' && req.path === '/') {
-    return res.redirect('/leads');
-  }
-  next();
-});
+
 // ---------------------------------------------------------------------------
 // In-memory storage
 // ---------------------------------------------------------------------------
@@ -435,13 +421,15 @@ var SYSTEM_PROMPT = [
   "",
   "INSURANCE EXCLUSIONS: No diving, no commercial use, no exceeding nautical limits, no overland transit, no coverage if rules breached, no coverage if non-member operates.",
   "",
+  "CANCELLATION: Cancelling your membership is simple. All we ask for is 60 days written notice. There are no long-term commitments. Contact the Membership Experience Center to submit your cancellation notice.",
+  "",
   "HOLD: Members may place their membership on hold for a minimum of 12 months per the current Hold Policy. Contact the Membership Experience Center for details and fees. Corporate and Friends & Family memberships may NOT be placed on hold.",
   "",
   "TRANSFER: 1+ year good standing, $500 fee to receiving club, new agreement at new rates. Subject to approval/availability.",
   "",
   "F&F NOTE: If all but 1-2 co-resident members terminate, auto-upgrades to Freedom Boating Plan at current rate + conversion fee.",
   "",
-  "CONTACT: Phone 904-329-7456. Email kseelig@freedomboatclub.com. Dock email fbcdocksjax@freedomboatclub.com. Web freedomboatclub.com. Reservations reservations.freedomboatclub.com."
+  "CONTACT: Phone 904-329-7456. Email bedinger@freedomboatclub.com. Dock email fbcdocksjax@freedomboatclub.com. Web freedomboatclub.com. Reservations reservations.freedomboatclub.com."
 ].join("\n");
 
 // ---------------------------------------------------------------------------
