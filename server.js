@@ -2,6 +2,7 @@ var express = require("express");
 var cors = require("cors");
 var path = require("path");
 var https = require("https");
+var nodemailer = require("nodemailer");
 
 var app = express();
 var PORT = process.env.PORT || 3000;
@@ -11,21 +12,17 @@ app.use(express.json({ limit: "100kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 // ---------------------------------------------------------------------------
-// In-memory lead storage (persists until Railway restarts)
+// In-memory storage
 // ---------------------------------------------------------------------------
 var leads = [];
-
-// ---------------------------------------------------------------------------
-// In-memory conversation storage (persists until Railway restarts)
-// ---------------------------------------------------------------------------
 var conversations = {};
 
 // ---------------------------------------------------------------------------
-// Email routing config (set via Railway environment variables)
+// Email routing
 // ---------------------------------------------------------------------------
 function getEmailForLocation(location) {
   var loc = (location || "").toLowerCase();
-  if (loc.indexOf("jax") !== -1 || loc.indexOf("jacksonville") !== -1 || loc.indexOf("jax beach") !== -1 || loc.indexOf("mayport") !== -1) {
+  if (loc.indexOf("jax") !== -1 || loc.indexOf("jacksonville") !== -1 || loc.indexOf("mayport") !== -1) {
     return process.env.EMAIL_JAX || process.env.EMAIL_DEFAULT || "kseelig@freedomboatclub.com";
   }
   if (loc.indexOf("julington") !== -1 || loc.indexOf("mandarin") !== -1 || loc.indexOf("orange park") !== -1) {
@@ -38,20 +35,15 @@ function getEmailForLocation(location) {
 }
 
 // ---------------------------------------------------------------------------
-// Gmail email sending (uses Nodemailer)
+// Gmail
 // ---------------------------------------------------------------------------
-var nodemailer = require("nodemailer");
-
 function getGmailTransport() {
   if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) return null;
   return nodemailer.createTransport({
     host: "smtp.gmail.com",
     port: 587,
     secure: false,
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD
-    },
+    auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 15000
@@ -60,94 +52,152 @@ function getGmailTransport() {
 
 function sendLeadEmail(lead) {
   var transport = getGmailTransport();
-  if (!transport) {
-    console.log("Gmail not configured - skipping email for lead:", lead.name);
-    return;
-  }
-
+  if (!transport) { console.log("Gmail not configured - skipping email for lead:", lead.name); return; }
   var toEmail = getEmailForLocation(lead.locationInterest);
-
-  var mailOptions = {
+  transport.sendMail({
     from: '"FBC Chat Lead Capture" <' + process.env.GMAIL_USER + '>',
     to: toEmail,
     subject: "New FBC Lead: " + lead.name + " - " + (lead.locationInterest || "General"),
-    html: "<h2>New Lead from FBC Chat</h2>" +
-      "<table style='border-collapse:collapse;font-family:sans-serif;'>" +
-      "<tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Name</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + lead.name + "</td></tr>" +
-      "<tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Phone</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + lead.phone + "</td></tr>" +
-      "<tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Email</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + lead.email + "</td></tr>" +
-      "<tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Zip/Location</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + lead.zip + "</td></tr>" +
-      "<tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Location Interest</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + (lead.locationInterest || "General") + "</td></tr>" +
-      "<tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Captured At</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + lead.capturedAt + "</td></tr>" +
-      "</table>" +
-      "<p style='margin-top:16px;color:#666;'>Routed to: " + toEmail + "</p>"
-  };
+    html: "<h2>New Lead from FBC Chat</h2><table style='border-collapse:collapse;font-family:sans-serif;'><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Name</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + lead.name + "</td></tr><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Phone</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + lead.phone + "</td></tr><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Email</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + lead.email + "</td></tr><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Zip</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + lead.zip + "</td></tr><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Location</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + (lead.locationInterest || "General") + "</td></tr></table>"
+  }, function(err) { if (err) console.error("Email error:", err.message); else console.log("Lead email sent for " + lead.name); });
+}
 
-  transport.sendMail(mailOptions, function(err, info) {
-    if (err) {
-      console.error("Email send error:", err.message);
+function sendWeeklySummary() {
+  var transport = getGmailTransport();
+  if (!transport) return;
+  var toEmail = process.env.EMAIL_DEFAULT || "kseelig@freedomboatclub.com";
+  var now = new Date();
+  var weekAgo = new Date(now.getTime() - 7 * 864e5);
+
+  var weekLeads = leads.filter(function(l) { return new Date(l.capturedAt) >= weekAgo; });
+  var weekConvKeys = Object.keys(conversations).filter(function(k) { return new Date(conversations[k].startedAt) >= weekAgo; });
+  var flagged = weekConvKeys.filter(function(k) { var c = conversations[k]; return c.flags && c.flags.length > 0; });
+  var totalMsgs = 0;
+  weekConvKeys.forEach(function(k) { totalMsgs += conversations[k].messages.length; });
+
+  var html = "<h2>FBC Chat Weekly Summary</h2>";
+  html += "<p>Week of " + weekAgo.toLocaleDateString() + " - " + now.toLocaleDateString() + "</p>";
+  html += "<table style='border-collapse:collapse;font-family:sans-serif;margin:16px 0;'>";
+  html += "<tr><td style='padding:8px 16px;background:#0B1D3A;color:white;font-weight:bold;'>Total Conversations</td><td style='padding:8px 16px;border:1px solid #ddd;font-size:20px;font-weight:bold;'>" + weekConvKeys.length + "</td></tr>";
+  html += "<tr><td style='padding:8px 16px;background:#0B1D3A;color:white;font-weight:bold;'>Total Messages</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + totalMsgs + "</td></tr>";
+  html += "<tr><td style='padding:8px 16px;background:#0B1D3A;color:white;font-weight:bold;'>New Leads</td><td style='padding:8px 16px;border:1px solid #ddd;font-size:20px;font-weight:bold;color:#166534;'>" + weekLeads.length + "</td></tr>";
+  html += "<tr><td style='padding:8px 16px;background:#0B1D3A;color:white;font-weight:bold;'>Flagged Conversations</td><td style='padding:8px 16px;border:1px solid #ddd;color:#991B1B;'>" + flagged.length + "</td></tr>";
+  html += "</table>";
+
+  if (weekLeads.length > 0) {
+    html += "<h3>New Leads This Week</h3><ul>";
+    weekLeads.forEach(function(l) { html += "<li><strong>" + l.name + "</strong> - " + l.phone + " - " + l.email + " (" + (l.locationInterest || "General") + ")</li>"; });
+    html += "</ul>";
+  }
+
+  transport.sendMail({
+    from: '"FBC Dashboard" <' + process.env.GMAIL_USER + '>',
+    to: toEmail,
+    subject: "FBC Chat Weekly Summary - " + weekLeads.length + " leads, " + weekConvKeys.length + " conversations",
+    html: html
+  }, function(err) { if (err) console.error("Summary email error:", err.message); else console.log("Weekly summary sent"); });
+}
+
+// Send weekly summary every Monday at 8am ET
+setInterval(function() {
+  var now = new Date();
+  var et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  if (et.getDay() === 1 && et.getHours() === 8 && et.getMinutes() === 0) {
+    sendWeeklySummary();
+  }
+}, 60000);
+
+// ---------------------------------------------------------------------------
+// Conversation analysis - flag issues
+// ---------------------------------------------------------------------------
+var COMPLAINT_WORDS = ["complaint", "complain", "unhappy", "disappointed", "frustrated", "terrible", "horrible", "worst", "angry", "upset", "cancel", "cancellation", "refund", "rude", "unacceptable", "disgusted", "furious"];
+var UNKNOWN_PHRASES = ["i don't know", "i'm not sure about that specific", "contact the club", "call us at", "reach out to", "i don't have that information", "i'd recommend speaking with"];
+
+function analyzeConversation(conv) {
+  var flags = [];
+  var sentiment = { positive: 0, negative: 0, neutral: 0 };
+  var userMsgs = [];
+  var botMsgs = [];
+
+  conv.messages.forEach(function(m) {
+    var lower = m.content.toLowerCase();
+    if (m.role === "user") {
+      userMsgs.push(lower);
+      // Sentiment from user messages
+      if (lower.match(/thank|great|awesome|love|perfect|excellent|wonderful|amazing/)) sentiment.positive++;
+      else if (lower.match(/bad|terrible|horrible|angry|upset|frustrated|disappointed|worst|hate/)) sentiment.negative++;
+      else sentiment.neutral++;
     } else {
-      console.log("Lead email sent to " + toEmail + " for " + lead.name);
+      botMsgs.push(lower);
     }
   });
+
+  // Check for complaints
+  var allText = userMsgs.join(" ");
+  COMPLAINT_WORDS.forEach(function(w) {
+    if (allText.indexOf(w) !== -1 && flags.indexOf("complaint") === -1) flags.push("complaint");
+  });
+
+  // Check for unanswered questions
+  botMsgs.forEach(function(b) {
+    UNKNOWN_PHRASES.forEach(function(p) {
+      if (b.indexOf(p) !== -1 && flags.indexOf("unanswered") === -1) flags.push("unanswered");
+    });
+  });
+
+  // Long conversation flag
+  if (conv.messages.length > 14) flags.push("long");
+
+  // Negative sentiment flag
+  if (sentiment.negative > sentiment.positive && sentiment.negative >= 2) flags.push("negative");
+
+  conv.flags = flags;
+  conv.sentiment = sentiment;
 }
 
 // ---------------------------------------------------------------------------
-// Lead capture endpoint
+// Auth helper
+// ---------------------------------------------------------------------------
+function checkAuth(req) {
+  var pw = process.env.ADMIN_PASSWORD || "fbc2024";
+  return (req.headers["x-admin-password"] === pw) || (req.query.password === pw);
+}
+
+// ---------------------------------------------------------------------------
+// Lead endpoints
 // ---------------------------------------------------------------------------
 app.post("/api/lead", function(req, res) {
   var lead = {
     id: "lead_" + Date.now() + "_" + Math.random().toString(36).substr(2, 6),
-    name: req.body.name || "",
-    phone: req.body.phone || "",
-    email: req.body.email || "",
-    zip: req.body.zip || "",
-    locationInterest: req.body.locationInterest || "",
+    name: req.body.name || "", phone: req.body.phone || "", email: req.body.email || "",
+    zip: req.body.zip || "", locationInterest: req.body.locationInterest || "",
     conversationId: req.body.conversationId || "",
-    capturedAt: new Date().toISOString(),
-    status: "new"
+    capturedAt: new Date().toISOString(), status: "new", notes: ""
   };
-
   leads.push(lead);
   if (leads.length > 500) leads = leads.slice(-500);
-
   console.log("LEAD CAPTURED:", lead.name, lead.phone, lead.email);
-
   sendLeadEmail(lead);
-
   res.json({ success: true, id: lead.id });
 });
 
-// ---------------------------------------------------------------------------
-// Leads dashboard (password protected)
-// ---------------------------------------------------------------------------
 app.get("/leads", function(req, res) {
-  var pw = process.env.ADMIN_PASSWORD || "fbc2024";
-  if (req.query.password !== pw) {
-    return res.status(401).send("Add ?password=YOUR_PASSWORD to the URL");
-  }
   res.sendFile(path.join(__dirname, "public", "leads.html"));
 });
 
 app.get("/api/leads", function(req, res) {
-  var pw = process.env.ADMIN_PASSWORD || "fbc2024";
-  if (req.query.password !== pw) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-  var sorted = leads.slice().sort(function(a, b) {
-    return new Date(b.capturedAt) - new Date(a.capturedAt);
-  });
+  if (!checkAuth(req)) return res.status(401).json({ error: "Unauthorized" });
+  var sorted = leads.slice().sort(function(a, b) { return new Date(b.capturedAt) - new Date(a.capturedAt); });
   res.json({ leads: sorted, total: sorted.length });
 });
 
 app.post("/api/leads/status", function(req, res) {
   var pw = process.env.ADMIN_PASSWORD || "fbc2024";
-  if (req.body.password !== pw) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
+  if (req.headers["x-admin-password"] !== pw && req.body.password !== pw) return res.status(401).json({ error: "Unauthorized" });
   for (var i = 0; i < leads.length; i++) {
     if (leads[i].id === req.body.id) {
-      leads[i].status = req.body.status || "contacted";
+      if (req.body.status) leads[i].status = req.body.status;
+      if (req.body.notes !== undefined) leads[i].notes = req.body.notes;
       return res.json({ success: true });
     }
   }
@@ -155,94 +205,51 @@ app.post("/api/leads/status", function(req, res) {
 });
 
 // ---------------------------------------------------------------------------
-// Health check
+// Health
 // ---------------------------------------------------------------------------
-app.get("/health", function(req, res) {
-  res.json({ status: "ok" });
-});
+app.get("/health", function(req, res) { res.json({ status: "ok" }); });
 
 // ---------------------------------------------------------------------------
-// Claude API proxy
+// Claude API
 // ---------------------------------------------------------------------------
 function callClaude(messages, callback) {
-  var body = JSON.stringify({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1024,
-    system: SYSTEM_PROMPT,
-    messages: messages
-  });
-
+  var body = JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1024, system: SYSTEM_PROMPT, messages: messages });
   var options = {
-    hostname: "api.anthropic.com",
-    path: "/v1/messages",
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY || "",
-      "anthropic-version": "2023-06-01",
-      "Content-Length": Buffer.byteLength(body)
-    }
+    hostname: "api.anthropic.com", path: "/v1/messages", method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01", "Content-Length": Buffer.byteLength(body) }
   };
-
   var req = https.request(options, function(res) {
     var data = "";
     res.on("data", function(chunk) { data += chunk; });
-    res.on("end", function() {
-      try {
-        callback(null, JSON.parse(data));
-      } catch(e) {
-        callback(new Error("Bad response from API"));
-      }
-    });
+    res.on("end", function() { try { callback(null, JSON.parse(data)); } catch(e) { callback(new Error("Bad response")); } });
   });
-
   req.on("error", function(err) { callback(err); });
   req.write(body);
   req.end();
 }
 
 app.post("/api/chat", function(req, res) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return res.status(500).json({ error: "Missing API key" });
-  }
-
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: "Missing API key" });
   var messages = req.body.messages || [];
   var convId = req.body.conversationId || "unknown";
   var clean = messages.slice(-50).map(function(m) {
-    return {
-      role: m.role === "assistant" ? "assistant" : "user",
-      content: String(m.content).slice(0, 5000)
-    };
+    return { role: m.role === "assistant" ? "assistant" : "user", content: String(m.content).slice(0, 5000) };
   });
-
   callClaude(clean, function(err, data) {
-    if (err) {
-      console.error("Error:", err.message);
-      return res.status(502).json({ error: "AI unavailable" });
-    }
+    if (err) { console.error("Error:", err.message); return res.status(502).json({ error: "AI unavailable" }); }
     if (data.content && data.content[0]) {
       var reply = data.content[0].text;
-
-      // Log conversation
       if (!conversations[convId]) {
-        conversations[convId] = {
-          id: convId,
-          startedAt: new Date().toISOString(),
-          messages: []
-        };
+        conversations[convId] = { id: convId, startedAt: new Date().toISOString(), messages: [], flags: [], sentiment: {} };
       }
       var conv = conversations[convId];
       conv.lastMessageAt = new Date().toISOString();
-      // Store just the latest user message and reply
       var lastUserMsg = clean.length > 0 ? clean[clean.length - 1].content : "";
       conv.messages.push({ role: "user", content: lastUserMsg, timestamp: new Date().toISOString() });
       conv.messages.push({ role: "assistant", content: reply, timestamp: new Date().toISOString() });
-      // Keep max 1000 conversations
+      analyzeConversation(conv);
       var convKeys = Object.keys(conversations);
-      if (convKeys.length > 1000) {
-        delete conversations[convKeys[0]];
-      }
-
+      if (convKeys.length > 1000) delete conversations[convKeys[0]];
       res.json({ reply: reply });
     } else {
       console.error("Unexpected response:", JSON.stringify(data).slice(0, 500));
@@ -252,36 +259,71 @@ app.post("/api/chat", function(req, res) {
 });
 
 // ---------------------------------------------------------------------------
-// Conversations API (password protected)
+// Conversations API
 // ---------------------------------------------------------------------------
 app.get("/api/conversations", function(req, res) {
-  var pw = process.env.ADMIN_PASSWORD || "fbc2024";
-  if (req.query.password !== pw) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
+  if (!checkAuth(req)) return res.status(401).json({ error: "Unauthorized" });
   var list = Object.keys(conversations).map(function(k) {
     var c = conversations[k];
     return {
-      id: c.id,
-      startedAt: c.startedAt,
-      lastMessageAt: c.lastMessageAt,
-      messageCount: c.messages.length,
+      id: c.id, startedAt: c.startedAt, lastMessageAt: c.lastMessageAt,
+      messageCount: c.messages.length, flags: c.flags || [], sentiment: c.sentiment || {},
       preview: c.messages.length > 0 ? c.messages[0].content.slice(0, 100) : ""
     };
-  }).sort(function(a, b) {
-    return new Date(b.lastMessageAt) - new Date(a.lastMessageAt);
-  });
+  }).sort(function(a, b) { return new Date(b.lastMessageAt) - new Date(a.lastMessageAt); });
   res.json({ conversations: list, total: list.length });
 });
 
 app.get("/api/conversations/:id", function(req, res) {
-  var pw = process.env.ADMIN_PASSWORD || "fbc2024";
-  if (req.query.password !== pw) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
+  if (!checkAuth(req)) return res.status(401).json({ error: "Unauthorized" });
   var conv = conversations[req.params.id];
   if (!conv) return res.status(404).json({ error: "Not found" });
   res.json(conv);
+});
+
+// ---------------------------------------------------------------------------
+// Analytics API
+// ---------------------------------------------------------------------------
+app.get("/api/analytics", function(req, res) {
+  if (!checkAuth(req)) return res.status(401).json({ error: "Unauthorized" });
+
+  var hourCounts = {};
+  var dayCounts = {};
+  var dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  for (var h = 0; h < 24; h++) hourCounts[h] = 0;
+  for (var d = 0; d < 7; d++) dayCounts[dayNames[d]] = 0;
+
+  var totalSentiment = { positive: 0, negative: 0, neutral: 0 };
+  var flagCounts = { complaint: 0, unanswered: 0, long: 0, negative: 0 };
+
+  Object.keys(conversations).forEach(function(k) {
+    var c = conversations[k];
+    var dt = new Date(c.startedAt);
+    hourCounts[dt.getHours()]++;
+    dayCounts[dayNames[dt.getDay()]]++;
+    if (c.sentiment) {
+      totalSentiment.positive += c.sentiment.positive || 0;
+      totalSentiment.negative += c.sentiment.negative || 0;
+      totalSentiment.neutral += c.sentiment.neutral || 0;
+    }
+    (c.flags || []).forEach(function(f) { if (flagCounts[f] !== undefined) flagCounts[f]++; });
+  });
+
+  res.json({
+    hourly: hourCounts,
+    daily: dayCounts,
+    sentiment: totalSentiment,
+    flags: flagCounts,
+    totalConversations: Object.keys(conversations).length,
+    totalLeads: leads.length
+  });
+});
+
+// Manual weekly summary trigger
+app.post("/api/send-summary", function(req, res) {
+  if (!checkAuth(req)) return res.status(401).json({ error: "Unauthorized" });
+  sendWeeklySummary();
+  res.json({ success: true, message: "Summary email sent" });
 });
 
 // ---------------------------------------------------------------------------
@@ -389,11 +431,11 @@ var SYSTEM_PROMPT = [
 ].join("\n");
 
 // ---------------------------------------------------------------------------
-// Start server
+// Start
 // ---------------------------------------------------------------------------
 app.listen(PORT, "0.0.0.0", function() {
   console.log("Server running on port " + PORT);
   console.log("API key: " + (process.env.ANTHROPIC_API_KEY ? "configured" : "MISSING"));
-  console.log("Gmail: " + (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD ? "configured" : "NOT SET - emails disabled"));
-  console.log("Leads dashboard: /leads?password=YOUR_PASSWORD");
+  console.log("Gmail: " + (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD ? "configured" : "NOT SET"));
+  console.log("Dashboard: /leads");
 });
