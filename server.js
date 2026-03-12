@@ -181,8 +181,8 @@ app.post("/api/lead", function(req, res) {
   res.json({ success: true, id: lead.id });
 });
 
-app.get("/leads", function(req, res) {
-  res.sendFile(path.join(__dirname, "public", "leads.html"));
+app.get("/dashboard", function(req, res) {
+  res.sendFile(path.join(__dirname, "public", "dashboard.html"));
 });
 
 app.get("/api/leads", function(req, res) {
@@ -429,7 +429,7 @@ var SYSTEM_PROMPT = [
   "",
   "F&F NOTE: If all but 1-2 co-resident members terminate, auto-upgrades to Freedom Boating Plan at current rate + conversion fee.",
   "",
-  "CONTACT: Phone 904-329-7456. Email bedinger@freedomboatclub.com. Dock email fbcdocksjax@freedomboatclub.com. Web freedomboatclub.com. Reservations reservations.freedomboatclub.com."
+  "CONTACT: Phone 904-329-7456. Email kseelig@freedomboatclub.com. Dock email fbcdocksjax@freedomboatclub.com. Web freedomboatclub.com. Reservations reservations.freedomboatclub.com."
 ].join("\n");
 
 // ---------------------------------------------------------------------------
