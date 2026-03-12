@@ -5,6 +5,7 @@ var https = require("https");
 var nodemailer = require("nodemailer");
 
 var app = express();
+app.set('trust proxy', 1);
 var PORT = process.env.PORT || 3000;
 
 app.use(cors());
