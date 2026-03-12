@@ -8,15 +8,26 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'DM Sans',sans-serif;background:#F0F2F5;min-height:100vh;color:#2C3544}
-.top{background:linear-gradient(135deg,#0B1D3A,#132D54);padding:24px 32px;color:white}
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,#0B1D3A,#132D54 40%,#1B4B8A)}
+.login-box{background:white;border-radius:20px;padding:40px;width:360px;max-width:90vw;box-shadow:0 20px 60px rgba(11,29,58,.25);text-align:center}
+.login-box h2{font-family:'Playfair Display',serif;font-size:22px;color:#0B1D3A;margin-bottom:6px}
+.login-box p{font-size:13px;color:#8E99A8;margin-bottom:24px}
+.login-box input{width:100%;padding:14px 18px;border:1.5px solid #D8DDE5;border-radius:12px;font-family:inherit;font-size:14px;outline:none;margin-bottom:16px;text-align:center}
+.login-box input:focus{border-color:#1B6EC2;box-shadow:0 0 0 3px rgba(27,110,194,.1)}
+.login-box button{width:100%;padding:14px;background:linear-gradient(135deg,#0B1D3A,#132D54);color:white;border:none;border-radius:12px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;transition:transform .2s}
+.login-box button:hover{transform:scale(1.02)}
+.login-err{color:#991B1B;font-size:13px;margin-top:12px;display:none}
+.app{display:none}
+.top{background:linear-gradient(135deg,#0B1D3A,#132D54);padding:24px 32px;color:white;display:flex;justify-content:space-between;align-items:center}
 .top h1{font-family:'Playfair Display',serif;font-size:24px;font-weight:700}
 .top p{font-size:13px;opacity:.6;margin-top:4px}
+.logout{padding:8px 16px;background:rgba(255,255,255,.15);color:white;border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px}
+.logout:hover{background:rgba(255,255,255,.25)}
 .tabs{display:flex;gap:0;padding:0 32px;background:white;border-bottom:2px solid #EEF1F4}
 .tab{padding:14px 24px;font-size:14px;font-weight:600;color:#8E99A8;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .2s}
 .tab.active{color:#0B1D3A;border-bottom-color:#1B6EC2}
 .tab:hover{color:#0B1D3A}
-.panel{display:none}
-.panel.active{display:block}
+.panel{display:none}.panel.active{display:block}
 .stats{display:flex;gap:16px;padding:24px 32px;flex-wrap:wrap}
 .stat{background:white;border-radius:12px;padding:20px 24px;flex:1;min-width:140px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
 .stat .num{font-size:28px;font-weight:700;color:#0B1D3A}
@@ -29,13 +40,9 @@ body{font-family:'DM Sans',sans-serif;background:#F0F2F5;min-height:100vh;color:
 table{width:100%;border-collapse:collapse;background:white;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.06)}
 th{background:#0B1D3A;color:white;padding:14px 16px;text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
 td{padding:14px 16px;border-bottom:1px solid #EEF1F4;font-size:13.5px}
-tr:hover td{background:#F8FAFB}
-tr{cursor:pointer}
+tr:hover td{background:#F8FAFB}tr{cursor:pointer}
 .badge{display:inline-block;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;text-transform:uppercase}
-.badge.new{background:#DCFCE7;color:#166534}
-.badge.contacted{background:#DBEAFE;color:#1E40AF}
-.badge.converted{background:#FEF3C7;color:#92400E}
-.badge.lost{background:#FEE2E2;color:#991B1B}
+.badge.new{background:#DCFCE7;color:#166534}.badge.contacted{background:#DBEAFE;color:#1E40AF}.badge.converted{background:#FEF3C7;color:#92400E}.badge.lost{background:#FEE2E2;color:#991B1B}
 .status-btn{padding:4px 8px;border:1px solid #D8DDE5;border-radius:6px;background:white;cursor:pointer;font-family:inherit;font-size:11px;margin:0 2px;transition:all .15s}
 .status-btn:hover{background:#0B1D3A;color:white;border-color:#0B1D3A}
 .empty{text-align:center;padding:60px 32px;color:#8E99A8;font-size:15px}
@@ -53,11 +60,25 @@ tr{cursor:pointer}
 .conv-msg.user{align-self:flex-end;background:linear-gradient(135deg,#0B1D3A,#132D54);color:white;border-bottom-right-radius:4px}
 .conv-msg.assistant{align-self:flex-start;background:#F0F2F5;color:#2C3544;border-bottom-left-radius:4px}
 .conv-msg .time{font-size:10px;opacity:.5;margin-top:4px}
-@media(max-width:640px){.stats{padding:16px}.stat{min-width:100%}.controls{padding:0 16px 12px}.table-wrap{padding:0 16px 16px}.top{padding:20px 16px}.tabs{padding:0 16px}.conv-box{width:100%;max-width:100%;height:100%;max-height:100%;border-radius:0}}
+@media(max-width:640px){.stats{padding:16px}.stat{min-width:100%}.controls{padding:0 16px 12px}.table-wrap{padding:0 16px 16px}.top{padding:20px 16px}.tabs{padding:0 16px}}
 </style>
 </head>
 <body>
-<div class="top"><h1>FBC Dashboard</h1><p>Freedom Boat Club of NE Florida — Chat & Lead Management</p></div>
+
+<!-- LOGIN SCREEN -->
+<div class="login-wrap" id="loginScreen">
+  <div class="login-box">
+    <h2>FBC Dashboard</h2>
+    <p>Enter your admin password to continue</p>
+    <input type="password" id="pwInput" placeholder="Password" onkeydown="if(event.key==='Enter')doLogin()">
+    <button onclick="doLogin()">Sign In</button>
+    <div class="login-err" id="loginErr">Incorrect password. Please try again.</div>
+  </div>
+</div>
+
+<!-- MAIN APP (hidden until login) -->
+<div class="app" id="mainApp">
+<div class="top"><div><h1>FBC Dashboard</h1><p>Freedom Boat Club of NE Florida</p></div><button class="logout" onclick="doLogout()">Sign Out</button></div>
 <div class="tabs"><div class="tab active" onclick="switchTab('leads')">Leads</div><div class="tab" onclick="switchTab('conversations')">Conversations</div></div>
 <div class="panel active" id="panel-leads">
   <div class="stats"><div class="stat"><div class="num" id="totalLeads">0</div><div class="label">Total Leads</div></div><div class="stat"><div class="num" id="newLeads">0</div><div class="label">New</div></div><div class="stat"><div class="num" id="contactedLeads">0</div><div class="label">Contacted</div></div><div class="stat"><div class="num" id="convertedLeads">0</div><div class="label">Converted</div></div></div>
@@ -69,23 +90,65 @@ tr{cursor:pointer}
   <div class="controls"><input type="text" id="searchConvs" placeholder="Search conversations..." oninput="filterConvs()"><button class="refresh" onclick="loadConversations()">Refresh</button></div>
   <div class="table-wrap"><table><thead><tr><th>Started</th><th>Last Active</th><th>Messages</th><th>Preview</th></tr></thead><tbody id="convsBody"></tbody></table><div class="empty" id="emptyConvs" style="display:none">No conversations yet.</div></div>
 </div>
+</div>
+
 <div class="conv-viewer" id="convViewer"><div class="conv-box"><div class="conv-header"><h3 id="convTitle">Conversation</h3><button class="conv-close" onclick="closeConv()">&times;</button></div><div class="conv-messages" id="convMessages"></div></div></div>
+
 <script>
-var allLeads=[],allConvs=[],pw=new URLSearchParams(window.location.search).get("password")||"";
+var allLeads=[],allConvs=[],pw="";
+
+// ---- AUTH ----
+function doLogin(){
+  pw=document.getElementById("pwInput").value;
+  var x=new XMLHttpRequest();
+  x.open("GET","/api/leads");
+  x.setRequestHeader("X-Admin-Password",pw);
+  x.onload=function(){
+    if(x.status===200){
+      sessionStorage.setItem("fbc_pw",pw);
+      document.getElementById("loginScreen").style.display="none";
+      document.getElementById("mainApp").style.display="block";
+      loadLeads();
+    } else {
+      document.getElementById("loginErr").style.display="block";
+    }
+  };
+  x.onerror=function(){document.getElementById("loginErr").style.display="block"};
+  x.send();
+}
+function doLogout(){
+  sessionStorage.removeItem("fbc_pw");
+  pw="";
+  document.getElementById("mainApp").style.display="none";
+  document.getElementById("loginScreen").style.display="flex";
+  document.getElementById("pwInput").value="";
+  document.getElementById("loginErr").style.display="none";
+}
+// Auto-login from session
+var saved=sessionStorage.getItem("fbc_pw");
+if(saved){pw=saved;var tx=new XMLHttpRequest();tx.open("GET","/api/leads");tx.setRequestHeader("X-Admin-Password",pw);tx.onload=function(){if(tx.status===200){document.getElementById("loginScreen").style.display="none";document.getElementById("mainApp").style.display="block";try{var d=JSON.parse(tx.responseText);allLeads=d.leads||[];updateLeadStats();filterLeads()}catch(e){}}else{sessionStorage.removeItem("fbc_pw")}};tx.send()}
+
+function apiGet(url,cb){var x=new XMLHttpRequest();x.open("GET",url);x.setRequestHeader("X-Admin-Password",pw);x.onload=function(){if(x.status===401){doLogout();return}cb(x.responseText)};x.send()}
+function apiPost(url,data,cb){var x=new XMLHttpRequest();x.open("POST",url);x.setRequestHeader("Content-Type","application/json");x.setRequestHeader("X-Admin-Password",pw);x.onload=function(){cb(x.responseText)};x.send(JSON.stringify(data))}
+
 function switchTab(n){var t=document.querySelectorAll(".tab"),p=document.querySelectorAll(".panel");for(var i=0;i<t.length;i++){t[i].className="tab";p[i].className="panel"}if(n==="leads"){t[0].className="tab active";document.getElementById("panel-leads").className="panel active"}else{t[1].className="tab active";document.getElementById("panel-conversations").className="panel active";loadConversations()}}
-function loadLeads(){var x=new XMLHttpRequest();x.open("GET","/api/leads?password="+encodeURIComponent(pw));x.onload=function(){try{var d=JSON.parse(x.responseText);allLeads=d.leads||[];updateLeadStats();filterLeads()}catch(e){}};x.send()}
+
+// ---- LEADS ----
+function loadLeads(){apiGet("/api/leads",function(r){try{var d=JSON.parse(r);allLeads=d.leads||[];updateLeadStats();filterLeads()}catch(e){}})}
 function updateLeadStats(){document.getElementById("totalLeads").textContent=allLeads.length;var c={new:0,contacted:0,converted:0};for(var i=0;i<allLeads.length;i++){var s=allLeads[i].status||"new";if(c[s]!==undefined)c[s]++}document.getElementById("newLeads").textContent=c.new;document.getElementById("contactedLeads").textContent=c.contacted;document.getElementById("convertedLeads").textContent=c.converted}
 function filterLeads(){var q=(document.getElementById("searchLeads").value||"").toLowerCase(),st=document.getElementById("filterStatus").value,lo=document.getElementById("filterLocation").value.toLowerCase();var f=allLeads.filter(function(l){return(!q||(l.name+l.email+l.phone+l.zip+l.locationInterest).toLowerCase().indexOf(q)!==-1)&&(!st||l.status===st)&&(!lo||(l.locationInterest||"general").toLowerCase().indexOf(lo)!==-1)});renderLeads(f)}
 function renderLeads(list){var b=document.getElementById("leadsBody"),e=document.getElementById("emptyLeads");if(!list.length){b.innerHTML="";e.style.display="block";return}e.style.display="none";var h="";for(var i=0;i<list.length;i++){var l=list[i],d=new Date(l.capturedAt),ds=(d.getMonth()+1)+"/"+d.getDate()+"/"+d.getFullYear()+" "+d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});h+="<tr><td>"+ds+"</td><td><strong>"+(l.name||"-")+"</strong></td><td><a href='tel:"+l.phone+"'>"+(l.phone||"-")+"</a></td><td><a href='mailto:"+l.email+"'>"+(l.email||"-")+"</a></td><td>"+(l.zip||"-")+"</td><td>"+(l.locationInterest||"General")+"</td><td><span class='badge "+(l.status||"new")+"'>"+(l.status||"new")+"</span></td><td><button class='status-btn' onclick='event.stopPropagation();setStatus(\""+l.id+"\",\"contacted\")'>Contacted</button><button class='status-btn' onclick='event.stopPropagation();setStatus(\""+l.id+"\",\"converted\")'>Converted</button><button class='status-btn' onclick='event.stopPropagation();setStatus(\""+l.id+"\",\"lost\")'>Lost</button></td></tr>"}b.innerHTML=h}
-function setStatus(id,s){var x=new XMLHttpRequest();x.open("POST","/api/leads/status");x.setRequestHeader("Content-Type","application/json");x.onload=function(){loadLeads()};x.send(JSON.stringify({id:id,status:s,password:pw}))}
-function loadConversations(){var x=new XMLHttpRequest();x.open("GET","/api/conversations?password="+encodeURIComponent(pw));x.onload=function(){try{var d=JSON.parse(x.responseText);allConvs=d.conversations||[];updateConvStats();filterConvs()}catch(e){}};x.send()}
+function setStatus(id,s){apiPost("/api/leads/status",{id:id,status:s},function(){loadLeads()})}
+
+// ---- CONVERSATIONS ----
+function loadConversations(){apiGet("/api/conversations",function(r){try{var d=JSON.parse(r);allConvs=d.conversations||[];updateConvStats();filterConvs()}catch(e){}})}
 function updateConvStats(){var now=new Date(),today=new Date(now.getFullYear(),now.getMonth(),now.getDate()),week=new Date(today.getTime()-7*864e5),tc=0,wc=0,tm=0;for(var i=0;i<allConvs.length;i++){var d=new Date(allConvs[i].startedAt);if(d>=today)tc++;if(d>=week)wc++;tm+=allConvs[i].messageCount||0}document.getElementById("totalConvs").textContent=allConvs.length;document.getElementById("todayConvs").textContent=tc;document.getElementById("weekConvs").textContent=wc;document.getElementById("avgMsgs").textContent=allConvs.length?Math.round(tm/allConvs.length):0}
 function filterConvs(){var q=(document.getElementById("searchConvs").value||"").toLowerCase();var f=allConvs.filter(function(c){return!q||(c.preview||"").toLowerCase().indexOf(q)!==-1});renderConvs(f)}
 function renderConvs(list){var b=document.getElementById("convsBody"),e=document.getElementById("emptyConvs");if(!list.length){b.innerHTML="";e.style.display="block";return}e.style.display="none";var h="";for(var i=0;i<list.length;i++){var c=list[i],s=new Date(c.startedAt),l=new Date(c.lastMessageAt);var ss=(s.getMonth()+1)+"/"+s.getDate()+" "+s.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});var ls=(l.getMonth()+1)+"/"+l.getDate()+" "+l.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});var pv=(c.preview||"-").substring(0,80)+(c.preview&&c.preview.length>80?"...":"");h+="<tr onclick='openConv(\""+c.id+"\")'><td>"+ss+"</td><td>"+ls+"</td><td>"+c.messageCount+"</td><td>"+pv+"</td></tr>"}b.innerHTML=h}
-function openConv(id){var x=new XMLHttpRequest();x.open("GET","/api/conversations/"+id+"?password="+encodeURIComponent(pw));x.onload=function(){try{var c=JSON.parse(x.responseText),d=new Date(c.startedAt);document.getElementById("convTitle").textContent="Conversation — "+(d.getMonth()+1)+"/"+d.getDate()+"/"+d.getFullYear();var msgs=c.messages||[],h="";for(var i=0;i<msgs.length;i++){var m=msgs[i],t=new Date(m.timestamp),ts=t.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});h+="<div class='conv-msg "+m.role+"'>"+m.content.replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>")+"<div class='time'>"+ts+"</div></div>"}document.getElementById("convMessages").innerHTML=h;document.getElementById("convViewer").className="conv-viewer open"}catch(e){}};x.send()}
+function openConv(id){apiGet("/api/conversations/"+id,function(r){try{var c=JSON.parse(r),d=new Date(c.startedAt);document.getElementById("convTitle").textContent="Conversation — "+(d.getMonth()+1)+"/"+d.getDate()+"/"+d.getFullYear();var msgs=c.messages||[],h="";for(var i=0;i<msgs.length;i++){var m=msgs[i],t=new Date(m.timestamp),ts=t.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});h+="<div class='conv-msg "+m.role+"'>"+m.content.replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>")+"<div class='time'>"+ts+"</div></div>"}document.getElementById("convMessages").innerHTML=h;document.getElementById("convViewer").className="conv-viewer open"}catch(e){}})}
 function closeConv(){document.getElementById("convViewer").className="conv-viewer"}
 document.getElementById("convViewer").addEventListener("click",function(e){if(e.target===this)closeConv()});
-loadLeads();setInterval(loadLeads,30000);
+setInterval(function(){if(pw)loadLeads()},30000);
 </script>
 </body>
 </html>

@@ -122,18 +122,17 @@ app.post("/api/lead", function(req, res) {
 // Leads dashboard (password protected)
 // ---------------------------------------------------------------------------
 app.get("/leads", function(req, res) {
-  var pw = process.env.ADMIN_PASSWORD || "fbc2024";
-  if (req.query.password !== pw) {
-    return res.status(401).send("Add ?password=YOUR_PASSWORD to the URL");
-  }
   res.sendFile(path.join(__dirname, "public", "leads.html"));
 });
 
-app.get("/api/leads", function(req, res) {
+function checkAuth(req) {
   var pw = process.env.ADMIN_PASSWORD || "fbc2024";
-  if (req.query.password !== pw) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
+  // Check header first, then query param as fallback
+  return (req.headers["x-admin-password"] === pw) || (req.query.password === pw);
+}
+
+app.get("/api/leads", function(req, res) {
+  if (!checkAuth(req)) return res.status(401).json({ error: "Unauthorized" });
   var sorted = leads.slice().sort(function(a, b) {
     return new Date(b.capturedAt) - new Date(a.capturedAt);
   });
@@ -142,7 +141,7 @@ app.get("/api/leads", function(req, res) {
 
 app.post("/api/leads/status", function(req, res) {
   var pw = process.env.ADMIN_PASSWORD || "fbc2024";
-  if (req.body.password !== pw) {
+  if (req.headers["x-admin-password"] !== pw && req.body.password !== pw) {
     return res.status(401).json({ error: "Unauthorized" });
   }
   for (var i = 0; i < leads.length; i++) {
@@ -255,10 +254,7 @@ app.post("/api/chat", function(req, res) {
 // Conversations API (password protected)
 // ---------------------------------------------------------------------------
 app.get("/api/conversations", function(req, res) {
-  var pw = process.env.ADMIN_PASSWORD || "fbc2024";
-  if (req.query.password !== pw) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
+  if (!checkAuth(req)) return res.status(401).json({ error: "Unauthorized" });
   var list = Object.keys(conversations).map(function(k) {
     var c = conversations[k];
     return {
@@ -275,10 +271,7 @@ app.get("/api/conversations", function(req, res) {
 });
 
 app.get("/api/conversations/:id", function(req, res) {
-  var pw = process.env.ADMIN_PASSWORD || "fbc2024";
-  if (req.query.password !== pw) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
+  if (!checkAuth(req)) return res.status(401).json({ error: "Unauthorized" });
   var conv = conversations[req.params.id];
   if (!conv) return res.status(404).json({ error: "Not found" });
   res.json(conv);
