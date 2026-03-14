@@ -42,15 +42,20 @@ var ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
     "https://chat.freedomboatclub.ai",
     "https://freedomboatclub.ai",
     "https://jaxfreedom.com",
-    "https://www.jaxfreedom.com"
+    "https://www.jaxfreedom.com",
+    "https://www.freedomboatclub.ai"
   ];
+// Also allow the Railway-assigned URL if present
+if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+  ALLOWED_ORIGINS.push("https://" + process.env.RAILWAY_PUBLIC_DOMAIN);
+}
 app.use(cors({
   origin: function(origin, callback) {
     // No origin header = non-browser client (curl, server-to-server). Allow but
     // do NOT reflect an origin, so the browser same-origin policy still applies.
     if (!origin) return callback(null, false);
     if (ALLOWED_ORIGINS.indexOf(origin) !== -1) return callback(null, true);
-    callback(new Error("Not allowed by CORS"));
+    callback(null, false);
   },
   credentials: true
 }));
