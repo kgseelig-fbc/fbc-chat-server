@@ -16,23 +16,39 @@ var PORT = process.env.PORT || 3000;
 // Trust Cloudflare proxy
 app.set("trust proxy", 1);
 
-// Helmet security headers
+// Helmet security headers with CSP
 app.use(helmet({
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:"],
+      connectSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"]
+    }
+  },
   crossOriginEmbedderPolicy: false
 }));
 
 // CORS — locked to allowed domains only
-var ALLOWED_ORIGINS = [
-  "https://chat.freedomboatclub.ai",
-  "https://freedomboatclub.ai",
-  "https://jaxfreedom.com",
-  "https://www.jaxfreedom.com"
-];
+var ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",").map(function(s) { return s.trim(); })
+  : [
+    "https://chat.freedomboatclub.ai",
+    "https://freedomboatclub.ai",
+    "https://jaxfreedom.com",
+    "https://www.jaxfreedom.com"
+  ];
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (direct access, mobile apps, server-to-server)
-    if (!origin) return callback(null, true);
+    // No origin header = non-browser client (curl, server-to-server). Allow but
+    // do NOT reflect an origin, so the browser same-origin policy still applies.
+    if (!origin) return callback(null, false);
     if (ALLOWED_ORIGINS.indexOf(origin) !== -1) return callback(null, true);
     callback(new Error("Not allowed by CORS"));
   },
@@ -48,11 +64,30 @@ var chatLimiter = rateLimit({
   legacyHeaders: false
 });
 
+// Rate limiter on admin endpoints — 5 attempts per 15 minutes per IP
+var adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: "Too many admin requests. Please wait and try again." },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// Rate limiter on /api/lead — 10 per minute per IP
+var leadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  message: { error: "Too many lead submissions. Please wait a moment." },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 // Origin/Referer validation middleware for /api/chat
 function validateOrigin(req, res, next) {
   var origin = req.headers.origin || "";
   var referer = req.headers.referer || "";
-  // Allow direct server access (no origin = same-origin or server request)
+  // Non-browser clients (no origin AND no referer) are allowed through —
+  // they cannot exploit CORS since they don't run in a browser context.
   if (!origin && !referer) return next();
   var allowed = false;
   for (var i = 0; i < ALLOWED_ORIGINS.length; i++) {
@@ -120,6 +155,11 @@ function getGmailTransport() {
   });
 }
 
+function escHtml(str) {
+  if (!str) return "";
+  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 function sendLeadEmail(lead) {
   var transport = getGmailTransport();
   if (!transport) { console.log("Gmail not configured - skipping email for lead:", lead.name); return; }
@@ -129,8 +169,8 @@ function sendLeadEmail(lead) {
     from: '"FBC Chat Lead Capture" <' + process.env.GMAIL_USER + '>',
     to: toEmail,
     cc: ccEmail,
-    subject: "New FBC Lead: " + lead.name + " - " + (lead.locationInterest || "General"),
-    html: "<h2>New Lead from FBC Chat</h2><table style='border-collapse:collapse;font-family:sans-serif;'><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Name</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + lead.name + "</td></tr><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Phone</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + lead.phone + "</td></tr><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Email</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + lead.email + "</td></tr><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Zip</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + lead.zip + "</td></tr><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Location</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + (lead.locationInterest || "General") + "</td></tr></table>"
+    subject: "New FBC Lead: " + escHtml(lead.name) + " - " + escHtml(lead.locationInterest || "General"),
+    html: "<h2>New Lead from FBC Chat</h2><table style='border-collapse:collapse;font-family:sans-serif;'><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Name</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + escHtml(lead.name) + "</td></tr><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Phone</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + escHtml(lead.phone) + "</td></tr><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Email</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + escHtml(lead.email) + "</td></tr><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Zip</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + escHtml(lead.zip) + "</td></tr><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Location</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + escHtml(lead.locationInterest || "General") + "</td></tr></table>"
   }, function(err) { if (err) console.error("Email error:", err.message); else console.log("Lead email sent for " + lead.name); });
 }
 
@@ -159,7 +199,7 @@ function sendWeeklySummary() {
 
   if (weekLeads.length > 0) {
     html += "<h3>New Leads This Week</h3><ul>";
-    weekLeads.forEach(function(l) { html += "<li><strong>" + l.name + "</strong> - " + l.phone + " - " + l.email + " (" + (l.locationInterest || "General") + ")</li>"; });
+    weekLeads.forEach(function(l) { html += "<li><strong>" + escHtml(l.name) + "</strong> - " + escHtml(l.phone) + " - " + escHtml(l.email) + " (" + escHtml(l.locationInterest || "General") + ")</li>"; });
     html += "</ul>";
   }
 
@@ -234,18 +274,35 @@ function analyzeConversation(conv) {
 // ---------------------------------------------------------------------------
 function checkAuth(req) {
   var pw = process.env.ADMIN_PASSWORD || "fbc2024";
-  return (req.headers["x-admin-password"] === pw) || (req.query.password === pw);
+  return (req.headers["x-admin-password"] === pw) || (req.body && req.body.password === pw);
 }
 
 // ---------------------------------------------------------------------------
 // Lead endpoints
 // ---------------------------------------------------------------------------
-app.post("/api/lead", function(req, res) {
+app.post("/api/lead", leadLimiter, function(req, res) {
+  // Basic input validation
+  var name = req.body.name || "";
+  var phone = req.body.phone || "";
+  var email = req.body.email || "";
+  if (!name && !phone && !email) {
+    return res.status(400).json({ error: "At least one of name, phone, or email is required" });
+  }
+  if (name.length > 200) return res.status(400).json({ error: "Name exceeds maximum length" });
+  if (phone.length > 30) return res.status(400).json({ error: "Phone exceeds maximum length" });
+  if (email.length > 200) return res.status(400).json({ error: "Email exceeds maximum length" });
+  var zip = req.body.zip || "";
+  if (zip.length > 20) return res.status(400).json({ error: "Zip exceeds maximum length" });
+  var locationInterest = req.body.locationInterest || "";
+  if (locationInterest.length > 200) return res.status(400).json({ error: "Location exceeds maximum length" });
+  var conversationId = req.body.conversationId || "";
+  if (conversationId.length > 100) return res.status(400).json({ error: "Conversation ID exceeds maximum length" });
+
   var lead = {
     id: "lead_" + Date.now() + "_" + Math.random().toString(36).substr(2, 6),
-    name: req.body.name || "", phone: req.body.phone || "", email: req.body.email || "",
-    zip: req.body.zip || "", locationInterest: req.body.locationInterest || "",
-    conversationId: req.body.conversationId || "",
+    name: name, phone: phone, email: email,
+    zip: zip, locationInterest: locationInterest,
+    conversationId: conversationId,
     capturedAt: new Date().toISOString(), status: "new", notes: ""
   };
   leads.push(lead);
@@ -259,13 +316,13 @@ app.get("/dashboard", function(req, res) {
   res.sendFile(path.join(__dirname, "public", "dashboard.html"));
 });
 
-app.get("/api/leads", function(req, res) {
+app.get("/api/leads", adminLimiter, function(req, res) {
   if (!checkAuth(req)) return res.status(401).json({ error: "Unauthorized" });
   var sorted = leads.slice().sort(function(a, b) { return new Date(b.capturedAt) - new Date(a.capturedAt); });
   res.json({ leads: sorted, total: sorted.length });
 });
 
-app.post("/api/leads/status", function(req, res) {
+app.post("/api/leads/status", adminLimiter, function(req, res) {
   var pw = process.env.ADMIN_PASSWORD || "fbc2024";
   if (req.headers["x-admin-password"] !== pw && req.body.password !== pw) return res.status(401).json({ error: "Unauthorized" });
   for (var i = 0; i < leads.length; i++) {
@@ -335,7 +392,7 @@ app.post("/api/chat", chatLimiter, validateOrigin, validateChatInput, function(r
 // ---------------------------------------------------------------------------
 // Conversations API
 // ---------------------------------------------------------------------------
-app.get("/api/conversations", function(req, res) {
+app.get("/api/conversations", adminLimiter, function(req, res) {
   if (!checkAuth(req)) return res.status(401).json({ error: "Unauthorized" });
   var list = Object.keys(conversations).map(function(k) {
     var c = conversations[k];
@@ -348,7 +405,7 @@ app.get("/api/conversations", function(req, res) {
   res.json({ conversations: list, total: list.length });
 });
 
-app.get("/api/conversations/:id", function(req, res) {
+app.get("/api/conversations/:id", adminLimiter, function(req, res) {
   if (!checkAuth(req)) return res.status(401).json({ error: "Unauthorized" });
   var conv = conversations[req.params.id];
   if (!conv) return res.status(404).json({ error: "Not found" });
@@ -358,7 +415,7 @@ app.get("/api/conversations/:id", function(req, res) {
 // ---------------------------------------------------------------------------
 // Analytics API
 // ---------------------------------------------------------------------------
-app.get("/api/analytics", function(req, res) {
+app.get("/api/analytics", adminLimiter, function(req, res) {
   if (!checkAuth(req)) return res.status(401).json({ error: "Unauthorized" });
 
   var hourCounts = {};
@@ -394,7 +451,7 @@ app.get("/api/analytics", function(req, res) {
 });
 
 // Manual weekly summary trigger
-app.post("/api/send-summary", function(req, res) {
+app.post("/api/send-summary", adminLimiter, function(req, res) {
   if (!checkAuth(req)) return res.status(401).json({ error: "Unauthorized" });
   sendWeeklySummary();
   res.json({ success: true, message: "Summary email sent" });
