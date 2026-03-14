@@ -23,15 +23,15 @@ var conversations = {};
 function getEmailForLocation(location) {
   var loc = (location || "").toLowerCase();
   if (loc.indexOf("jax") !== -1 || loc.indexOf("jacksonville") !== -1 || loc.indexOf("mayport") !== -1) {
-    return process.env.EMAIL_JAX || process.env.EMAIL_DEFAULT || "kseelig@freedomboatclub.com";
+    return process.env.EMAIL_JAX || process.env.EMAIL_DEFAULT || "bedinger@freedomboatclub.com";
   }
   if (loc.indexOf("julington") !== -1 || loc.indexOf("mandarin") !== -1 || loc.indexOf("orange park") !== -1) {
-    return process.env.EMAIL_JULINGTON || process.env.EMAIL_DEFAULT || "kseelig@freedomboatclub.com";
+    return process.env.EMAIL_JULINGTON || process.env.EMAIL_DEFAULT || "bedinger@freedomboatclub.com";
   }
   if (loc.indexOf("st. aug") !== -1 || loc.indexOf("st aug") !== -1 || loc.indexOf("saint aug") !== -1 || loc.indexOf("camachee") !== -1 || loc.indexOf("shipyard") !== -1) {
-    return process.env.EMAIL_STAUGUSTINE || process.env.EMAIL_DEFAULT || "kseelig@freedomboatclub.com";
+    return process.env.EMAIL_STAUGUSTINE || process.env.EMAIL_DEFAULT || "bedinger@freedomboatclub.com";
   }
-  return process.env.EMAIL_DEFAULT || "kseelig@freedomboatclub.com";
+  return process.env.EMAIL_DEFAULT || "bedinger@freedomboatclub.com";
 }
 
 // ---------------------------------------------------------------------------
