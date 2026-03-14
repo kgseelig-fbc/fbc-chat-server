@@ -54,9 +54,11 @@ function sendLeadEmail(lead) {
   var transport = getGmailTransport();
   if (!transport) { console.log("Gmail not configured - skipping email for lead:", lead.name); return; }
   var toEmail = getEmailForLocation(lead.locationInterest);
+  var ccEmail = "kseelig@freedomboatclub.com";
   transport.sendMail({
     from: '"FBC Chat Lead Capture" <' + process.env.GMAIL_USER + '>',
     to: toEmail,
+    cc: ccEmail,
     subject: "New FBC Lead: " + lead.name + " - " + (lead.locationInterest || "General"),
     html: "<h2>New Lead from FBC Chat</h2><table style='border-collapse:collapse;font-family:sans-serif;'><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Name</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + lead.name + "</td></tr><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Phone</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + lead.phone + "</td></tr><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Email</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + lead.email + "</td></tr><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Zip</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + lead.zip + "</td></tr><tr><td style='padding:8px 16px;font-weight:bold;background:#0B1D3A;color:white;'>Location</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + (lead.locationInterest || "General") + "</td></tr></table>"
   }, function(err) { if (err) console.error("Email error:", err.message); else console.log("Lead email sent for " + lead.name); });
@@ -65,7 +67,8 @@ function sendLeadEmail(lead) {
 function sendWeeklySummary() {
   var transport = getGmailTransport();
   if (!transport) return;
-  var toEmail = process.env.EMAIL_DEFAULT || "kseelig@freedomboatclub.com";
+  var toEmail = process.env.EMAIL_DEFAULT || "bedinger@freedomboatclub.com";
+  var ccEmail = "kseelig@freedomboatclub.com";
   var now = new Date();
   var weekAgo = new Date(now.getTime() - 7 * 864e5);
 
@@ -93,6 +96,7 @@ function sendWeeklySummary() {
   transport.sendMail({
     from: '"FBC Dashboard" <' + process.env.GMAIL_USER + '>',
     to: toEmail,
+    cc: ccEmail,
     subject: "FBC Chat Weekly Summary - " + weekLeads.length + " leads, " + weekConvKeys.length + " conversations",
     html: html
   }, function(err) { if (err) console.error("Summary email error:", err.message); else console.log("Weekly summary sent"); });
@@ -373,11 +377,13 @@ var SYSTEM_PROMPT = [
   "HOURS: Docks open at 8 AM Monday through Friday. Weekends docks open 30 min after sunrise. Boats can stay out until 30 minutes before sunset EVERY DAY (weekdays and weekends). YEAR-ROUND time slots (available every day, not just summer): Morning slot: 30 min after sunrise to 1 PM. Afternoon slot: 2:30 PM to 30 min before sunset. Full Day reservations are available 365 days a year (not limited to weekends or summer). Additional summer weekend bonus slots: Full Day Early Return (sunrise+30 to 4 PM) and Evening (5 PM to sunset-30). Same-day reservations up to 1 hour before closing. Closed: Thanksgiving, Christmas Eve, Christmas Day, New Years Day, Annual Employee Meeting (Sep/Oct). Open regular hours New Years Eve.",
   "",
   "MEMBERSHIP PLANS:",
-  "1. Freedom Boating Plan: 7 days/week, 12 mo/yr, 2 members (you and your spouse/partner), 4 reservations max / 2 weekend max, reciprocal: yes.",
-  "2. Weekday Boating Plan: Mon-Fri only, 12 mo/yr, 2 members (you and your spouse/partner), 4 reservations, reciprocal: yes.",
-  "3. Friends & Family: 7 days/week, 12 mo/yr, up to 4 members, 4 res / 2 weekend, reciprocal: yes. Cannot go on hold.",
+  "1. Freedom Boating Plan: 7 days/week, 12 mo/yr, 2 members (couples only — you and your spouse/partner), 4 reservations max / 2 weekend max, reciprocal: yes.",
+  "2. Weekday Boating Plan: Mon-Fri only, 12 mo/yr, 2 members (couples only — you and your spouse/partner), 4 reservations, reciprocal: yes.",
+  "3. Friends & Family: 7 days/week, 12 mo/yr, up to 4 members (great for family combinations like father/son, siblings, friends, or any group — does NOT have to be a couple), 4 res / 2 weekend, reciprocal: yes. Cannot go on hold.",
   "4. Corporate: 7 days/week, 12 mo/yr, up to 4 members, 4 res / 2 weekend, reciprocal: yes. Cannot go on hold.",
   "5. Seasonal Snowbird: 7 days/week, 6 mo/yr (Oct 1-Mar 31), 2 members, 4 res / 2 weekend, reciprocal: no.",
+  "",
+  "MEMBERSHIP ELIGIBILITY NOTE: If someone asks about joining with a family member who is not their spouse/partner (such as a parent and child, siblings, or friends), always recommend the Friends & Family plan. The Freedom Boating Plan and Weekday Boating Plan are strictly for couples (spouse/partner) only.",
   "",
   "PRICING: Initiation fee $999-$9,999. Monthly dues $329-$899. Varies by plan/promotions. Fuel: pay only for what you use (fuel flow meters). All payments non-refundable. ACH required; non-ACH = $15 admin fee. Late charges 1.5%/month.",
   "",
@@ -429,7 +435,7 @@ var SYSTEM_PROMPT = [
   "",
   "F&F NOTE: If all but 1-2 co-resident members terminate, auto-upgrades to Freedom Boating Plan at current rate + conversion fee.",
   "",
-  "CONTACT: Phone 904-329-7456. Email kseelig@freedomboatclub.com. Dock email fbcdocksjax@freedomboatclub.com. Web freedomboatclub.com. Reservations reservations.freedomboatclub.com."
+  "CONTACT: Phone 904-329-7456. Email bedinger@freedomboatclub.com. Dock email fbcdocksjax@freedomboatclub.com. Web freedomboatclub.com. Reservations reservations.freedomboatclub.com."
 ].join("\n");
 
 // ---------------------------------------------------------------------------
