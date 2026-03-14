@@ -3,11 +3,81 @@ var cors = require("cors");
 var path = require("path");
 var https = require("https");
 var nodemailer = require("nodemailer");
+var helmet = require("helmet");
+var rateLimit = require("express-rate-limit");
 
 var app = express();
 var PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// ---------------------------------------------------------------------------
+// Security hardening
+// ---------------------------------------------------------------------------
+
+// Trust Cloudflare proxy
+app.set("trust proxy", 1);
+
+// Helmet security headers
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false
+}));
+
+// CORS — locked to allowed domains only
+var ALLOWED_ORIGINS = [
+  "https://chat.freedomboatclub.ai",
+  "https://freedomboatclub.ai",
+  "https://jaxfreedom.com",
+  "https://www.jaxfreedom.com"
+];
+app.use(cors({
+  origin: function(origin, callback) {
+    // Allow requests with no origin (direct access, mobile apps, server-to-server)
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.indexOf(origin) !== -1) return callback(null, true);
+    callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true
+}));
+
+// Rate limiter on /api/chat — 10 requests per minute per IP
+var chatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  message: { error: "Too many requests. Please wait a moment and try again." },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// Origin/Referer validation middleware for /api/chat
+function validateOrigin(req, res, next) {
+  var origin = req.headers.origin || "";
+  var referer = req.headers.referer || "";
+  // Allow direct server access (no origin = same-origin or server request)
+  if (!origin && !referer) return next();
+  var allowed = false;
+  for (var i = 0; i < ALLOWED_ORIGINS.length; i++) {
+    if (origin === ALLOWED_ORIGINS[i] || referer.indexOf(ALLOWED_ORIGINS[i]) === 0) {
+      allowed = true;
+      break;
+    }
+  }
+  if (!allowed) return res.status(403).json({ error: "Forbidden" });
+  next();
+}
+
+// Input validation middleware
+function validateChatInput(req, res, next) {
+  var messages = req.body.messages;
+  if (!Array.isArray(messages)) return res.status(400).json({ error: "Invalid input: messages must be an array" });
+  for (var i = 0; i < messages.length; i++) {
+    var m = messages[i];
+    if (!m || typeof m.content !== "string") return res.status(400).json({ error: "Invalid input: each message must have a string content field" });
+    if (m.content.length > 1000) return res.status(400).json({ error: "Invalid input: message exceeds 1000 character limit" });
+    if (m.role !== "user" && m.role !== "assistant") return res.status(400).json({ error: "Invalid input: role must be user or assistant" });
+  }
+  next();
+}
+
 app.use(express.json({ limit: "100kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -232,7 +302,7 @@ function callClaude(messages, callback) {
   req.end();
 }
 
-app.post("/api/chat", function(req, res) {
+app.post("/api/chat", chatLimiter, validateOrigin, validateChatInput, function(req, res) {
   if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: "Missing API key" });
   var messages = req.body.messages || [];
   var convId = req.body.conversationId || "unknown";

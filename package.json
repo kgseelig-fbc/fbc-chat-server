@@ -1,7 +1,7 @@
 {
   "name": "fbc-chat-server",
-  "version": "2.0.0",
-  "description": "Freedom Boat Club NE Florida Chat Server with Lead Capture",
+  "version": "2.1.0",
+  "description": "Freedom Boat Club NE Florida Chat Server - Hardened",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -9,7 +9,9 @@
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5",
-    "nodemailer": "^6.9.8"
+    "nodemailer": "^6.9.8",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.1.5"
   },
   "engines": {
     "node": ">=18.0.0"
