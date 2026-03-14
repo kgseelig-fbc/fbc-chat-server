@@ -70,10 +70,10 @@ var chatLimiter = rateLimit({
   legacyHeaders: false
 });
 
-// Rate limiter on admin endpoints — 5 attempts per 15 minutes per IP
+// Rate limiter on admin endpoints — 60 requests per 15 minutes per IP
 var adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 60,
   message: { error: "Too many admin requests. Please wait and try again." },
   standardHeaders: true,
   legacyHeaders: false
