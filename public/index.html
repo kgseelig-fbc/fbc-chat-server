@@ -175,6 +175,7 @@ function send() {
   var xhr = new XMLHttpRequest();
   xhr.open("POST", API + "/api/chat");
   xhr.setRequestHeader("Content-Type", "application/json");
+  xhr.timeout = 35000;
   xhr.onload = function() {
     hideTyping();
     try {
@@ -183,12 +184,18 @@ function send() {
         var cleanReply = checkForLead(data.reply);
         chatHistory.push({ role: "assistant", content: cleanReply });
         addMsg("bot", cleanReply);
+      } else if (data.error && data.error.indexOf("Too many") === 0) {
+        addMsg("bot", "We're getting a lot of questions right now! Please wait a moment and try again, or call us at 904-329-7456.");
       } else {
-        addMsg("bot", "I'm having trouble right now. Please call us at 904-329-7456!");
+        addMsg("bot", "I'm having trouble right now. Please try again or call us at 904-329-7456!");
       }
     } catch(e) {
       addMsg("bot", "I'm having trouble connecting. Please call us at 904-329-7456!");
     }
+  };
+  xhr.ontimeout = function() {
+    hideTyping();
+    addMsg("bot", "That's taking longer than expected. Please try again or call us at 904-329-7456!");
   };
   xhr.onerror = function() {
     hideTyping();

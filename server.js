@@ -113,7 +113,7 @@ function validateChatInput(req, res, next) {
   for (var i = 0; i < messages.length; i++) {
     var m = messages[i];
     if (!m || typeof m.content !== "string") return res.status(400).json({ error: "Invalid input: each message must have a string content field" });
-    if (m.content.length > 1000) return res.status(400).json({ error: "Invalid input: message exceeds 1000 character limit" });
+    if (m.content.length > 5000) return res.status(400).json({ error: "Invalid input: message exceeds character limit" });
     if (m.role !== "user" && m.role !== "assistant") return res.status(400).json({ error: "Invalid input: role must be user or assistant" });
   }
   next();
@@ -361,6 +361,7 @@ function callClaude(messages, callback) {
     res.on("end", function() { try { callback(null, JSON.parse(data)); } catch(e) { callback(new Error("Bad response")); } });
   });
   req.on("error", function(err) { callback(err); });
+  req.setTimeout(30000, function() { req.destroy(new Error("Request timed out")); });
   req.write(body);
   req.end();
 }
