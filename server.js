@@ -28,7 +28,7 @@ app.use(helmet({
       imgSrc: ["'self'", "data:"],
       connectSrc: ["'self'"],
       objectSrc: ["'none'"],
-      frameAncestors: ["'none'"],
+      frameAncestors: ["'self'", "https://jaxfreedom.com", "https://www.jaxfreedom.com"],
       baseUri: ["'self'"],
       formAction: ["'self'"]
     }
