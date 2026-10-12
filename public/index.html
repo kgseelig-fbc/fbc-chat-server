@@ -175,7 +175,7 @@ function send() {
   var xhr = new XMLHttpRequest();
   xhr.open("POST", API + "/api/chat");
   xhr.setRequestHeader("Content-Type", "application/json");
-  xhr.timeout = 35000;
+  xhr.timeout = 50000; // the server waits up to 45s on the model
   xhr.onload = function() {
     hideTyping();
     try {

@@ -4,7 +4,8 @@
   "description": "Freedom Boat Club NE Florida Chat Server - Hardened",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node test/smoke.js"
   },
   "dependencies": {
     "express": "^4.18.2",

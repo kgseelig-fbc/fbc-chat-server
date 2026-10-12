@@ -2,6 +2,7 @@ var express = require("express");
 var cors = require("cors");
 var path = require("path");
 var https = require("https");
+var crypto = require("crypto");
 var nodemailer = require("nodemailer");
 var helmet = require("helmet");
 var rateLimit = require("express-rate-limit");
@@ -218,14 +219,28 @@ function sendWeeklySummary() {
   }, function(err) { if (err) console.error("Summary email error:", err.message); else console.log("Weekly summary sent"); });
 }
 
-// Send weekly summary every Monday at 8am ET
+// Eastern-time hour (0-23) and short weekday name for a date. The server runs in UTC.
+var ET_FORMAT = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false, weekday: "short" });
+function etHourAndDay(date) {
+  var out = { hour: 0, day: "Sun" };
+  ET_FORMAT.formatToParts(date).forEach(function(p) {
+    if (p.type === "hour") out.hour = parseInt(p.value, 10) % 24;
+    if (p.type === "weekday") out.day = p.value;
+  });
+  return out;
+}
+
+// Send weekly summary every Monday at 8am ET. Checks every 30s and remembers the last
+// send date so a tick landing on 7:59:59 then 8:01:00 can't skip the window.
+var lastSummaryDate = "";
 setInterval(function() {
-  var now = new Date();
-  var et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  if (et.getDay() === 1 && et.getHours() === 8 && et.getMinutes() === 0) {
+  var et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  var today = et.toDateString();
+  if (et.getDay() === 1 && et.getHours() === 8 && et.getMinutes() < 5 && lastSummaryDate !== today) {
+    lastSummaryDate = today;
     sendWeeklySummary();
   }
-}, 60000);
+}, 30000);
 
 // ---------------------------------------------------------------------------
 // Conversation analysis - flag issues
@@ -278,31 +293,61 @@ function analyzeConversation(conv) {
 // ---------------------------------------------------------------------------
 // Auth helper
 // ---------------------------------------------------------------------------
+function safeEqual(a, b) {
+  // Hash both sides so the comparison is constant-time and leaks nothing about length.
+  var ha = crypto.createHash("sha256").update(String(a)).digest();
+  var hb = crypto.createHash("sha256").update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
 function checkAuth(req) {
   var pw = process.env.ADMIN_PASSWORD || "fbc2024";
-  return (req.headers["x-admin-password"] === pw) || (req.body && req.body.password === pw);
+  var supplied = req.headers["x-admin-password"] || (req.body && req.body.password) || "";
+  return safeEqual(supplied, pw);
 }
 
 // ---------------------------------------------------------------------------
 // Lead endpoints
 // ---------------------------------------------------------------------------
-app.post("/api/lead", leadLimiter, function(req, res) {
-  // Basic input validation
-  var name = req.body.name || "";
-  var phone = req.body.phone || "";
-  var email = req.body.email || "";
-  if (!name && !phone && !email) {
-    return res.status(400).json({ error: "At least one of name, phone, or email is required" });
+var LEAD_STATUSES = ["new", "contacted", "converted", "lost"];
+var LEAD_TAG = /\[LEAD_CAPTURED\]\s*(\{[^{}]*\})/;
+var CONV_ID = /^[\w-]{1,100}$/;
+
+function str(v) { return typeof v === "string" ? v.trim() : (v == null ? "" : String(v)); }
+
+// Validate and store a lead. Returns { lead } or { error }. A second capture from the
+// same conversation (e.g. the prospect adds their email later) updates the existing lead
+// instead of creating a duplicate.
+function recordLead(fields, conversationId) {
+  fields = fields || {};
+  var name = str(fields.name), phone = str(fields.phone), email = str(fields.email);
+  var zip = str(fields.zip), locationInterest = str(fields.locationInterest);
+  if (!name && !phone && !email) return { error: "At least one of name, phone, or email is required" };
+  if (name.length > 200) return { error: "Name exceeds maximum length" };
+  if (phone.length > 30) return { error: "Phone exceeds maximum length" };
+  if (email.length > 200) return { error: "Email exceeds maximum length" };
+  if (zip.length > 20) return { error: "Zip exceeds maximum length" };
+  if (locationInterest.length > 200) return { error: "Location exceeds maximum length" };
+  conversationId = CONV_ID.test(conversationId) && conversationId !== "unknown" ? conversationId : "";
+
+  var existing = null;
+  if (conversationId) {
+    for (var i = 0; i < leads.length; i++) {
+      if (leads[i].conversationId === conversationId) { existing = leads[i]; break; }
+    }
   }
-  if (name.length > 200) return res.status(400).json({ error: "Name exceeds maximum length" });
-  if (phone.length > 30) return res.status(400).json({ error: "Phone exceeds maximum length" });
-  if (email.length > 200) return res.status(400).json({ error: "Email exceeds maximum length" });
-  var zip = req.body.zip || "";
-  if (zip.length > 20) return res.status(400).json({ error: "Zip exceeds maximum length" });
-  var locationInterest = req.body.locationInterest || "";
-  if (locationInterest.length > 200) return res.status(400).json({ error: "Location exceeds maximum length" });
-  var conversationId = req.body.conversationId || "";
-  if (conversationId.length > 100) return res.status(400).json({ error: "Conversation ID exceeds maximum length" });
+  if (existing) {
+    var changed = false;
+    var updates = { name: name, phone: phone, email: email, zip: zip, locationInterest: locationInterest };
+    Object.keys(updates).forEach(function(k) {
+      if (updates[k] && updates[k] !== existing[k]) { existing[k] = updates[k]; changed = true; }
+    });
+    if (changed) {
+      console.log("LEAD UPDATED:", existing.name, existing.phone, existing.email);
+      sendLeadEmail(existing);
+    }
+    return { lead: existing, updated: true };
+  }
 
   var lead = {
     id: "lead_" + Date.now() + "_" + Math.random().toString(36).substr(2, 6),
@@ -315,7 +360,29 @@ app.post("/api/lead", leadLimiter, function(req, res) {
   if (leads.length > 500) leads = leads.slice(-500);
   console.log("LEAD CAPTURED:", lead.name, lead.phone, lead.email);
   sendLeadEmail(lead);
-  res.json({ success: true, id: lead.id });
+  return { lead: lead };
+}
+
+// The model appends [LEAD_CAPTURED]{json} when it has collected a prospect's details.
+// Record the lead here so capture doesn't depend on the browser, and strip the tag
+// so neither the member nor the dashboard transcript sees it.
+function captureLeadFromReply(reply, conversationId) {
+  var m = reply.match(LEAD_TAG);
+  if (!m) return reply;
+  try {
+    var result = recordLead(JSON.parse(m[1]), conversationId);
+    if (result.error) console.warn("Lead tag rejected:", result.error);
+  } catch (e) {
+    console.error("Lead tag parse error:", e.message, m[1].slice(0, 200));
+  }
+  return reply.replace(LEAD_TAG, "").trim();
+}
+
+// Kept for older cached copies of the widget, which still POST leads themselves.
+app.post("/api/lead", leadLimiter, validateOrigin, function(req, res) {
+  var result = recordLead(req.body, str(req.body.conversationId));
+  if (result.error) return res.status(400).json({ error: result.error });
+  res.json({ success: true, id: result.lead.id });
 });
 
 app.get("/dashboard", function(req, res) {
@@ -329,8 +396,9 @@ app.get("/api/leads", adminLimiter, function(req, res) {
 });
 
 app.post("/api/leads/status", adminLimiter, function(req, res) {
-  var pw = process.env.ADMIN_PASSWORD || "fbc2024";
-  if (req.headers["x-admin-password"] !== pw && req.body.password !== pw) return res.status(401).json({ error: "Unauthorized" });
+  if (!checkAuth(req)) return res.status(401).json({ error: "Unauthorized" });
+  if (req.body.status !== undefined && LEAD_STATUSES.indexOf(req.body.status) === -1) return res.status(400).json({ error: "Invalid status" });
+  if (req.body.notes !== undefined && (typeof req.body.notes !== "string" || req.body.notes.length > 5000)) return res.status(400).json({ error: "Invalid notes" });
   for (var i = 0; i < leads.length; i++) {
     if (leads[i].id === req.body.id) {
       if (req.body.status) leads[i].status = req.body.status;
@@ -349,56 +417,111 @@ app.get("/health", function(req, res) { res.json({ status: "ok" }); });
 // ---------------------------------------------------------------------------
 // Claude API
 // ---------------------------------------------------------------------------
+var CLAUDE_MODEL = "claude-sonnet-5-5";
+var CLAUDE_TIMEOUT_MS = 45000;
+
 function callClaude(messages, callback) {
-  var body = JSON.stringify({ model: "claude-sonnet-5-5", max_tokens: 1024, system: SYSTEM_PROMPT, messages: messages });
+  var body = JSON.stringify({
+    model: CLAUDE_MODEL,
+    // Thinking tokens count toward max_tokens, so leave room for both thinking and the reply.
+    max_tokens: 4096,
+    // Sonnet 5.5 thinks before replying by default; "low" keeps that brief for chat latency.
+    output_config: { effort: "low" },
+    // The knowledge base is identical on every request — cache it so only the conversation is billed at full price.
+    system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+    messages: messages
+  });
   var options = {
     hostname: "api.anthropic.com", path: "/v1/messages", method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01", "Content-Length": Buffer.byteLength(body) }
   };
+  var done = false;
+  function finish(err, data, status) {
+    if (done) return;
+    done = true;
+    callback(err, data, status);
+  }
   var req = https.request(options, function(res) {
     var data = "";
+    res.setEncoding("utf8");
     res.on("data", function(chunk) { data += chunk; });
-    res.on("end", function() { try { callback(null, JSON.parse(data)); } catch(e) { callback(new Error("Bad response (HTTP " + res.statusCode + ", " + data.length + " chars, " + e.message + "): " + data.slice(0, 200) + " ... " + data.slice(-300))); } });
+    res.on("end", function() {
+      var parsed;
+      try { parsed = JSON.parse(data); }
+      catch (e) { return finish(new Error("Bad response (HTTP " + res.statusCode + ", " + data.length + " chars): " + data.slice(0, 200))); }
+      finish(null, parsed, res.statusCode);
+    });
+    res.on("error", function(err) { finish(err); });
   });
-  req.on("error", function(err) { callback(err); });
-  req.setTimeout(30000, function() { req.destroy(new Error("Request timed out")); });
+  req.on("error", function(err) { finish(err); });
+  req.setTimeout(CLAUDE_TIMEOUT_MS, function() { req.destroy(new Error("Request timed out")); });
   req.write(body);
   req.end();
 }
 
+// One retry for transient failures (overloaded, server error, dropped connection). Not for timeouts.
+function callClaudeWithRetry(messages, callback) {
+  callClaude(messages, function(err, data, status) {
+    var retryable = err ? err.message !== "Request timed out" : (status === 529 || status === 503 || status === 500);
+    if (!retryable) return callback(err, data, status);
+    console.warn("Claude request failed (" + (err ? err.message : "HTTP " + status) + "), retrying once");
+    setTimeout(function() { callClaude(messages, callback); }, 1500);
+  });
+}
+
+var REFUSAL_REPLY = "I'm not able to help with that one, but I'm happy to answer questions about Freedom Boat Club membership, our boats, or getting out on the water. You can also call us at 904-329-7456.";
+
 app.post("/api/chat", chatLimiter, validateOrigin, validateChatInput, function(req, res) {
   if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: "Missing API key" });
   var messages = req.body.messages || [];
-  var convId = req.body.conversationId || "unknown";
+  var convId = typeof req.body.conversationId === "string" && CONV_ID.test(req.body.conversationId) ? req.body.conversationId : "unknown";
   var clean = messages.slice(-50).map(function(m) {
     return { role: m.role === "assistant" ? "assistant" : "user", content: String(m.content).slice(0, 5000) };
   });
-  callClaude(clean, function(err, data) {
+  callClaudeWithRetry(clean, function(err, data, status) {
     if (err) { console.error("Error:", err.message); return res.status(502).json({ error: "AI unavailable" }); }
-    var textBlock = null;
-    if (Array.isArray(data.content)) {
-      for (var i = 0; i < data.content.length; i++) {
-        if (data.content[i] && data.content[i].type === "text" && data.content[i].text) { textBlock = data.content[i]; break; }
-      }
+    if (status === 429 || status === 529) {
+      console.warn("Claude API busy (HTTP " + status + ")");
+      return res.status(503).json({ error: "Too many requests right now. Please wait a moment and try again." });
     }
-    if (textBlock) {
-      var reply = textBlock.text;
-      if (!conversations[convId]) {
-        conversations[convId] = { id: convId, startedAt: new Date().toISOString(), messages: [], flags: [], sentiment: {} };
-      }
-      var conv = conversations[convId];
-      conv.lastMessageAt = new Date().toISOString();
-      var lastUserMsg = clean.length > 0 ? clean[clean.length - 1].content : "";
-      conv.messages.push({ role: "user", content: lastUserMsg, timestamp: new Date().toISOString() });
-      conv.messages.push({ role: "assistant", content: reply, timestamp: new Date().toISOString() });
-      analyzeConversation(conv);
-      var convKeys = Object.keys(conversations);
-      if (convKeys.length > 1000) delete conversations[convKeys[0]];
-      res.json({ reply: reply });
+    if (status !== 200) {
+      console.error("Claude API error (HTTP " + status + "):", JSON.stringify(data).slice(0, 500));
+      return res.status(502).json({ error: "AI unavailable" });
+    }
+
+    var reply = "";
+    if (data.stop_reason === "refusal") {
+      console.warn("Claude declined to answer:", JSON.stringify(data.stop_details || {}));
+      reply = REFUSAL_REPLY;
     } else {
-      console.error("Unexpected response:", JSON.stringify(data).slice(0, 500));
-      res.status(502).json({ error: "AI unavailable" });
+      // Read blocks by type: with thinking on, content[0] is usually a thinking block, not text.
+      (data.content || []).forEach(function(block) {
+        if (block && block.type === "text" && block.text) reply += block.text;
+      });
+      if (!reply) {
+        console.error("No text in response (stop_reason " + data.stop_reason + "):", JSON.stringify(data).slice(0, 500));
+        return res.status(502).json({ error: "AI unavailable" });
+      }
+      if (data.stop_reason === "max_tokens") console.warn("Reply truncated at max_tokens for conversation " + convId);
     }
+    if (data.usage) {
+      console.log("chat " + convId + " tokens in=" + data.usage.input_tokens + " cached=" + (data.usage.cache_read_input_tokens || 0) + " out=" + data.usage.output_tokens);
+    }
+
+    reply = captureLeadFromReply(reply, convId);
+
+    if (!conversations[convId]) {
+      conversations[convId] = { id: convId, startedAt: new Date().toISOString(), messages: [], flags: [], sentiment: {} };
+    }
+    var conv = conversations[convId];
+    conv.lastMessageAt = new Date().toISOString();
+    var lastUserMsg = clean.length > 0 ? clean[clean.length - 1].content : "";
+    conv.messages.push({ role: "user", content: lastUserMsg, timestamp: new Date().toISOString() });
+    conv.messages.push({ role: "assistant", content: reply, timestamp: new Date().toISOString() });
+    analyzeConversation(conv);
+    var convKeys = Object.keys(conversations);
+    if (convKeys.length > 1000) delete conversations[convKeys[0]];
+    res.json({ reply: reply });
   });
 });
 
@@ -442,9 +565,9 @@ app.get("/api/analytics", adminLimiter, function(req, res) {
 
   Object.keys(conversations).forEach(function(k) {
     var c = conversations[k];
-    var dt = new Date(c.startedAt);
-    hourCounts[dt.getHours()]++;
-    dayCounts[dayNames[dt.getDay()]]++;
+    var when = etHourAndDay(new Date(c.startedAt));
+    hourCounts[when.hour]++;
+    dayCounts[when.day]++;
     if (c.sentiment) {
       totalSentiment.positive += c.sentiment.positive || 0;
       totalSentiment.negative += c.sentiment.negative || 0;
@@ -741,5 +864,6 @@ app.listen(PORT, "0.0.0.0", function() {
   console.log("Server running on port " + PORT);
   console.log("API key: " + (process.env.ANTHROPIC_API_KEY ? "configured" : "MISSING"));
   console.log("Gmail: " + (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD ? "configured" : "NOT SET"));
-  console.log("Dashboard: /leads");
+  if (!process.env.ADMIN_PASSWORD) console.warn("ADMIN_PASSWORD not set - dashboard is using the default password");
+  console.log("Dashboard: /dashboard");
 });
