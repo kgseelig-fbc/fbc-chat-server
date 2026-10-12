@@ -358,7 +358,7 @@ function callClaude(messages, callback) {
   var req = https.request(options, function(res) {
     var data = "";
     res.on("data", function(chunk) { data += chunk; });
-    res.on("end", function() { try { callback(null, JSON.parse(data)); } catch(e) { callback(new Error("Bad response (HTTP " + res.statusCode + "): " + data.slice(0, 300))); } });
+    res.on("end", function() { try { callback(null, JSON.parse(data)); } catch(e) { callback(new Error("Bad response (HTTP " + res.statusCode + ", " + data.length + " chars, " + e.message + "): " + data.slice(0, 200) + " ... " + data.slice(-300))); } });
   });
   req.on("error", function(err) { callback(err); });
   req.setTimeout(30000, function() { req.destroy(new Error("Request timed out")); });
@@ -375,8 +375,14 @@ app.post("/api/chat", chatLimiter, validateOrigin, validateChatInput, function(r
   });
   callClaude(clean, function(err, data) {
     if (err) { console.error("Error:", err.message); return res.status(502).json({ error: "AI unavailable" }); }
-    if (data.content && data.content[0]) {
-      var reply = data.content[0].text;
+    var textBlock = null;
+    if (Array.isArray(data.content)) {
+      for (var i = 0; i < data.content.length; i++) {
+        if (data.content[i] && data.content[i].type === "text" && data.content[i].text) { textBlock = data.content[i]; break; }
+      }
+    }
+    if (textBlock) {
+      var reply = textBlock.text;
       if (!conversations[convId]) {
         conversations[convId] = { id: convId, startedAt: new Date().toISOString(), messages: [], flags: [], sentiment: {} };
       }
