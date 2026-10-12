@@ -52,7 +52,10 @@ body{font-family:'DM Sans',sans-serif;background:linear-gradient(160deg,#0B1D3A,
 .send:disabled{opacity:.4;cursor:not-allowed}
 .send svg{width:18px;height:18px;fill:white}
 .footer{text-align:center;margin-top:8px;font-size:11px;color:var(--g400)}
-@media(max-width:480px){.chat{width:100vw;height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;border-radius:0}.input-area{padding-bottom:calc(18px + env(safe-area-inset-bottom,0px))}}
+@media(max-width:480px){.chat{width:100vw;height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;border-radius:0}.input-area{padding-bottom:calc(18px + env(safe-area-inset-bottom,0px))}
+/* When embedded on jaxfreedom.com, the host page draws its round close button over the bottom-right
+   corner of the iframe. Pull the input row and footer in so the send button is never under it. */
+body.framed .input-area{padding-right:96px}}
 </style>
 </head>
 <body>
@@ -90,6 +93,7 @@ body{font-family:'DM Sans',sans-serif;background:linear-gradient(160deg,#0B1D3A,
 <script src="logo.js"></script>
 <script>
 document.getElementById("logo").src = LOGO;
+if (window.self !== window.top) document.body.className += " framed";
 var API = window.location.origin;
 var chatHistory = [];
 var cid = "c_" + Date.now() + "_" + Math.random().toString(36).substr(2,6);
