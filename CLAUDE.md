@@ -14,7 +14,7 @@ FBC Chat Server (v2.1.0) — AI-powered customer service chatbot for Freedom Boa
 
 ## Required Environment Variables
 
-`ANTHROPIC_API_KEY`, `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `ADMIN_PASSWORD` (default: "fbc2024"). Optional location-specific email routing: `EMAIL_JAX`, `EMAIL_JULINGTON`, `EMAIL_STAUGUSTINE`, `EMAIL_DEFAULT`.
+`ANTHROPIC_API_KEY`, `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `ADMIN_PASSWORD` (default: "fbc2024"). Optional location-specific email routing: `EMAIL_JAX`, `EMAIL_JULINGTON`, `EMAIL_STAUGUSTINE`, `EMAIL_DEFAULT`. Optional `DATA_DIR`: directory (a Railway volume mount, e.g. `/data`) where leads and conversations are persisted as JSON; unset = in-memory only.
 
 ## Architecture
 
@@ -27,7 +27,7 @@ Single-file Express backend (`server.js`) serving two static frontends from `pub
   - Responses are read by block `type` — `content[0]` is usually a `thinking` block, not text. `stop_reason: "refusal"` gets a canned reply.
   - The system prompt is sent as a `system` array with `cache_control: {type: "ephemeral"}` (prompt caching). The per-request log line `chat <id> tokens in=… cached=… out=…` shows whether cache reads are happening.
   - One automatic retry on 500/503/529 or a dropped connection; upstream 429/529 is returned to the widget as a 503 "Too many requests" so it shows the busy message
-- In-memory storage for leads (max 500) and conversations (max 1000) — no database, data resets on restart
+- Storage: leads (max 500) and conversations (max 1000) live in memory; with `DATA_DIR` set they are mirrored to `leads.json` / `conversations.json` (loaded at boot, debounced atomic saves via `scheduleSave()`, synchronous flush on SIGTERM). Without `DATA_DIR` data resets on restart. No database.
 - Lead capture: `captureLeadFromReply()` parses the `[LEAD_CAPTURED]{JSON}` tag out of the model reply server-side, records the lead via `recordLead()` (one lead per conversationId — a later tag updates it), and strips the tag before the reply is stored or returned. `POST /api/lead` remains for older cached widgets.
 - Lead email routing: `getEmailForLocation()` matches location keywords to env vars, CC's kseelig@freedomboatclub.com on all leads
 - Conversation analysis: keyword-based sentiment detection and quality flagging (complaint, unanswered, long, negative)

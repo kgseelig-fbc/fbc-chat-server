@@ -1,6 +1,7 @@
 var express = require("express");
 var cors = require("cors");
 var path = require("path");
+var fs = require("fs");
 var https = require("https");
 var crypto = require("crypto");
 var nodemailer = require("nodemailer");
@@ -124,10 +125,69 @@ app.use(express.json({ limit: "100kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 // ---------------------------------------------------------------------------
-// In-memory storage
+// Storage — in memory, mirrored to JSON files when DATA_DIR is set (a Railway volume).
+// Without DATA_DIR everything is lost on restart, as before.
 // ---------------------------------------------------------------------------
 var leads = [];
 var conversations = {};
+var DATA_DIR = process.env.DATA_DIR || "";
+
+function dataPath(name) { return path.join(DATA_DIR, name + ".json"); }
+
+function readJson(name, fallback) {
+  try { return JSON.parse(fs.readFileSync(dataPath(name), "utf8")); }
+  catch (e) {
+    if (e.code !== "ENOENT") console.error("Could not read " + name + ".json:", e.message);
+    return fallback;
+  }
+}
+
+function loadData() {
+  if (!DATA_DIR) return;
+  try { fs.mkdirSync(DATA_DIR, { recursive: true }); }
+  catch (e) { console.error("DATA_DIR " + DATA_DIR + " is unusable, running in memory only:", e.message); DATA_DIR = ""; return; }
+  var l = readJson("leads", []);
+  var c = readJson("conversations", {});
+  leads = Array.isArray(l) ? l : [];
+  conversations = (c && typeof c === "object" && !Array.isArray(c)) ? c : {};
+  console.log("Loaded " + leads.length + " leads and " + Object.keys(conversations).length + " conversations from " + DATA_DIR);
+}
+
+function serialize(name) { return JSON.stringify(name === "leads" ? leads : conversations); }
+
+// Saves are debounced (2s) and atomic: write a temp file, then rename over the real one,
+// so a crash mid-write can never leave a half-written file to load next boot.
+var saveTimers = {};
+function scheduleSave(name) {
+  if (!DATA_DIR || saveTimers[name]) return;
+  saveTimers[name] = setTimeout(function() {
+    saveTimers[name] = null;
+    var file = dataPath(name), tmp = file + ".tmp";
+    fs.writeFile(tmp, serialize(name), function(err) {
+      if (err) return console.error("Could not write " + name + ".json:", err.message);
+      fs.rename(tmp, file, function(err2) { if (err2) console.error("Could not save " + name + ".json:", err2.message); });
+    });
+  }, 2000);
+}
+
+// Railway sends SIGTERM on redeploy; flush anything still debounced before exiting.
+function flushSync() {
+  if (!DATA_DIR) return;
+  ["leads", "conversations"].forEach(function(name) {
+    if (!saveTimers[name]) return;
+    clearTimeout(saveTimers[name]);
+    saveTimers[name] = null;
+    try {
+      fs.writeFileSync(dataPath(name) + ".tmp", serialize(name));
+      fs.renameSync(dataPath(name) + ".tmp", dataPath(name));
+    } catch (e) { console.error("Could not flush " + name + ".json:", e.message); }
+  });
+}
+["SIGTERM", "SIGINT"].forEach(function(sig) {
+  process.on(sig, function() { flushSync(); process.exit(0); });
+});
+
+loadData();
 
 // ---------------------------------------------------------------------------
 // Email routing
@@ -345,6 +405,7 @@ function recordLead(fields, conversationId) {
     if (changed) {
       console.log("LEAD UPDATED:", existing.name, existing.phone, existing.email);
       sendLeadEmail(existing);
+      scheduleSave("leads");
     }
     return { lead: existing, updated: true };
   }
@@ -360,6 +421,7 @@ function recordLead(fields, conversationId) {
   if (leads.length > 500) leads = leads.slice(-500);
   console.log("LEAD CAPTURED:", lead.name, lead.phone, lead.email);
   sendLeadEmail(lead);
+  scheduleSave("leads");
   return { lead: lead };
 }
 
@@ -403,6 +465,7 @@ app.post("/api/leads/status", adminLimiter, function(req, res) {
     if (leads[i].id === req.body.id) {
       if (req.body.status) leads[i].status = req.body.status;
       if (req.body.notes !== undefined) leads[i].notes = req.body.notes;
+      scheduleSave("leads");
       return res.json({ success: true });
     }
   }
@@ -521,6 +584,7 @@ app.post("/api/chat", chatLimiter, validateOrigin, validateChatInput, function(r
     analyzeConversation(conv);
     var convKeys = Object.keys(conversations);
     if (convKeys.length > 1000) delete conversations[convKeys[0]];
+    scheduleSave("conversations");
     res.json({ reply: reply });
   });
 });
@@ -865,5 +929,6 @@ app.listen(PORT, "0.0.0.0", function() {
   console.log("API key: " + (process.env.ANTHROPIC_API_KEY ? "configured" : "MISSING"));
   console.log("Gmail: " + (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD ? "configured" : "NOT SET"));
   if (!process.env.ADMIN_PASSWORD) console.warn("ADMIN_PASSWORD not set - dashboard is using the default password");
+  console.log("Storage: " + (DATA_DIR ? "persisted to " + DATA_DIR : "in memory only (set DATA_DIR to a volume path to persist)"));
   console.log("Dashboard: /dashboard");
 });
