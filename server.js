@@ -358,7 +358,7 @@ function callClaude(messages, callback) {
   var req = https.request(options, function(res) {
     var data = "";
     res.on("data", function(chunk) { data += chunk; });
-    res.on("end", function() { try { callback(null, JSON.parse(data)); } catch(e) { callback(new Error("Bad response")); } });
+    res.on("end", function() { try { callback(null, JSON.parse(data)); } catch(e) { callback(new Error("Bad response (HTTP " + res.statusCode + "): " + data.slice(0, 300))); } });
   });
   req.on("error", function(err) { callback(err); });
   req.setTimeout(30000, function() { req.destroy(new Error("Request timed out")); });
