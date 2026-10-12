@@ -6,6 +6,16 @@ process.env.ANTHROPIC_API_KEY = "test-key";
 process.env.ADMIN_PASSWORD = "secret-pw";
 delete process.env.GMAIL_USER; // no email attempts
 
+// Persistence: seed a data dir so we can check it loads at boot and saves after changes.
+var fs = require("fs");
+var os = require("os");
+var path = require("path");
+var DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "fbc-smoke-"));
+process.env.DATA_DIR = DATA_DIR;
+fs.writeFileSync(path.join(DATA_DIR, "leads.json"), JSON.stringify([
+  { id: "lead_seed", name: "Seeded Lead", phone: "904-555-0000", email: "", zip: "", locationInterest: "", conversationId: "", capturedAt: "2026-01-01T00:00:00.000Z", status: "contacted", notes: "" }
+]));
+
 var https = require("https");
 var http = require("http");
 var EventEmitter = require("events");
@@ -95,14 +105,17 @@ setTimeout(async function () {
 
     r = await call("GET", "/api/leads", null, { "X-Admin-Password": "secret-pw" });
     var leads = JSON.parse(r.body).leads;
-    check("lead recorded server-side", leads.length === 1 && leads[0].name === "Kim Test" && leads[0].conversationId === "c_test_1", r.body);
+    var byConv = function (list, cid) { return list.filter(function (l) { return l.conversationId === cid; }); };
+    check("seeded lead loaded from DATA_DIR at boot", leads.some(function (l) { return l.id === "lead_seed" && l.status === "contacted"; }), r.body);
+    check("lead recorded server-side", byConv(leads, "c_test_1").length === 1 && byConv(leads, "c_test_1")[0].name === "Kim Test", r.body);
 
     // 2. Second tag in the same conversation updates the lead instead of duplicating it.
     scripted.push({ status: 200, body: apiMsg([{ type: "text", text: "Got it!\n[LEAD_CAPTURED]{\"name\":\"Kim Test\",\"phone\":\"904-555-0100\",\"email\":\"kim@example.com\",\"zip\":\"32250\",\"locationInterest\":\"Jacksonville Beach\"}" }]) });
     r = await call("POST", "/api/chat", { messages: [{ role: "user", content: "kim@example.com" }], conversationId: "c_test_1" });
     r = await call("GET", "/api/leads", null, { "X-Admin-Password": "secret-pw" });
     leads = JSON.parse(r.body).leads;
-    check("second tag updates existing lead (no duplicate)", leads.length === 1 && leads[0].email === "kim@example.com", r.body);
+    check("second tag updates existing lead (no duplicate)", byConv(leads, "c_test_1").length === 1 && byConv(leads, "c_test_1")[0].email === "kim@example.com", r.body);
+    leads = byConv(leads, "c_test_1"); // later status tests target this lead
 
     // 3. Conversation transcript has the tag stripped and is in ET-aware analytics.
     r = await call("GET", "/api/conversations/c_test_1", null, { "X-Admin-Password": "secret-pw" });
@@ -167,7 +180,32 @@ setTimeout(async function () {
     r = await call("POST", "/api/lead", {}, {});
     check("/api/lead empty -> 400", r.status === 400, r.status);
 
-    // 11. Input validation still intact.
+    // 11. Persistence: debounced saves landed on disk (2s debounce).
+    await new Promise(function (ok) { setTimeout(ok, 2600); });
+    var savedLeads = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "leads.json"), "utf8"));
+    var savedConvs = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "conversations.json"), "utf8"));
+    check("leads.json saved with captured + seeded leads", savedLeads.some(function (l) { return l.id === "lead_seed"; }) && savedLeads.some(function (l) { return l.conversationId === "c_test_1" && l.status === "lost"; }), JSON.stringify(savedLeads).slice(0, 300));
+    check("conversations.json saved with transcript", savedConvs.c_test_1 && savedConvs.c_test_1.messages.length === 4, Object.keys(savedConvs).join(","));
+    check("no leftover .tmp files", !fs.readdirSync(DATA_DIR).some(function (f) { return /\.tmp$/.test(f); }), fs.readdirSync(DATA_DIR).join(","));
+
+    // 12. SIGTERM flush: a real child server receives a lead and is killed before the debounce fires.
+    var sigDir = fs.mkdtempSync(path.join(os.tmpdir(), "fbc-sigterm-"));
+    var child = require("child_process").spawn(process.execPath, [path.join(__dirname, "..", "server.js")], {
+      env: Object.assign({}, process.env, { PORT: "3998", DATA_DIR: sigDir, ANTHROPIC_API_KEY: "x" }), stdio: ["ignore", "pipe", "pipe"]
+    });
+    await new Promise(function (ok) { child.stdout.on("data", function (d) { if (String(d).indexOf("Server running") !== -1) ok(); }); });
+    var r2 = await new Promise(function (resolve, reject) {
+      var data = JSON.stringify({ name: "Flush Me", phone: "904-555-0777", conversationId: "c_sig" });
+      var rq = http.request({ host: "127.0.0.1", port: 3998, method: "POST", path: "/api/lead", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data), Origin: "https://chat.freedomboatclub.ai" } }, function (res) { var o = ""; res.on("data", function (c) { o += c; }); res.on("end", function () { resolve({ status: res.statusCode, body: o }); }); });
+      rq.on("error", reject); rq.write(data); rq.end();
+    });
+    check("child accepted lead", r2.status === 200, r2.status + " " + r2.body);
+    child.kill("SIGTERM");
+    var code = await new Promise(function (ok) { child.on("exit", ok); });
+    var flushed = fs.existsSync(path.join(sigDir, "leads.json")) ? JSON.parse(fs.readFileSync(path.join(sigDir, "leads.json"), "utf8")) : null;
+    check("SIGTERM flushed leads.json before the debounce fired", code === 0 && flushed && flushed.length === 1 && flushed[0].name === "Flush Me", "exit=" + code + " file=" + JSON.stringify(flushed));
+
+    // 13. Input validation still intact.
     r = await call("POST", "/api/chat", { messages: "nope" });
     check("non-array messages -> 400", r.status === 400, r.status);
     r = await call("GET", "/health");
