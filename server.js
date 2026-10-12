@@ -350,7 +350,7 @@ app.get("/health", function(req, res) { res.json({ status: "ok" }); });
 // Claude API
 // ---------------------------------------------------------------------------
 function callClaude(messages, callback) {
-  var body = JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1024, system: SYSTEM_PROMPT, messages: messages });
+  var body = JSON.stringify({ model: "claude-sonnet-5-5", max_tokens: 1024, system: SYSTEM_PROMPT, messages: messages });
   var options = {
     hostname: "api.anthropic.com", path: "/v1/messages", method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01", "Content-Length": Buffer.byteLength(body) }

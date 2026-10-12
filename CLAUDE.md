@@ -21,7 +21,7 @@ Single-file Express backend (`server.js`) serving two static frontends from `pub
 
 **server.js** handles everything:
 - Security middleware (Helmet, CORS locked to 4 FBC domains, rate limiting 10 req/min on `/api/chat`, origin validation, input validation)
-- Claude API integration via raw `https.request` to `api.anthropic.com` (model: claude-sonnet-4-20250514) — not using the Anthropic SDK
+- Claude API integration via raw `https.request` to `api.anthropic.com` (model: claude-sonnet-5-5) — not using the Anthropic SDK
 - In-memory storage for leads (max 500) and conversations (max 1000) — no database, data resets on restart
 - Lead email routing: `getEmailForLocation()` matches location keywords to env vars, CC's kseelig@freedomboatclub.com on all leads
 - Conversation analysis: keyword-based sentiment detection and quality flagging (complaint, unanswered, long, negative)
