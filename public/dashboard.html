@@ -29,6 +29,8 @@ body{font-family:'DM Sans',sans-serif;background:#F0F2F5;min-height:100vh;color:
 .top-btns{display:flex;gap:8px}
 .top-btn{padding:8px 16px;background:rgba(255,255,255,.15);color:white;border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px}
 .top-btn:hover{background:rgba(255,255,255,.25)}
+.status{display:inline-flex;align-items:center;padding:8px 14px;border-radius:20px;font-size:12px;font-weight:600;color:white;background:rgba(255,255,255,.15);white-space:nowrap}
+.status.ok{background:#15803D}.status.down{background:#B91C1C}
 .tabs{display:flex;padding:0 32px;background:white;border-bottom:2px solid #EEF1F4}
 .tab{padding:14px 24px;font-size:14px;font-weight:600;color:#8E99A8;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px}
 .tab.active{color:#0B1D3A;border-bottom-color:#1B6EC2}
@@ -85,7 +87,7 @@ tr:hover td{background:#F8FAFB}tr{cursor:pointer}
   </div>
 </div>
 <div class="app" id="mainApp">
-<div class="top"><div class="top-left"><div class="top-logo"><img id="topLogo" alt="FBC"></div><h1>FBC Dashboard</h1></div><div class="top-btns"><button class="top-btn" onclick="sendSummary()">Send Summary</button><button class="top-btn" onclick="doLogout()">Sign Out</button></div></div>
+<div class="top"><div class="top-left"><div class="top-logo"><img id="topLogo" alt="FBC"></div><h1>FBC Dashboard</h1></div><div class="top-btns"><span class="status" id="botStatus" title="Automatic check that the bot can reach Claude">Bot: checking…</span><button class="top-btn" onclick="sendSummary()">Send Summary</button><button class="top-btn" onclick="doLogout()">Sign Out</button></div></div>
 <div class="tabs">
   <div class="tab active" onclick="switchTab('leads')">Leads</div>
   <div class="tab" onclick="switchTab('conversations')">Conversations</div>
@@ -128,10 +130,10 @@ if(typeof LOGO!=="undefined"){document.getElementById("loginLogo").src=LOGO;docu
 
 function esc(s){if(!s)return"";return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;")}
 
-function doLogin(){pw=document.getElementById("pwInput").value;apiGet("/api/leads",function(s,r){if(s===200){sessionStorage.setItem("fbc_pw",pw);document.getElementById("loginScreen").style.display="none";document.getElementById("mainApp").style.display="block";try{var d=JSON.parse(r);allLeads=d.leads||[];updateLeadStats();filterLeads()}catch(e){}}else{document.getElementById("loginErr").style.display="block"}})}
+function doLogin(){pw=document.getElementById("pwInput").value;apiGet("/api/leads",function(s,r){if(s===200){sessionStorage.setItem("fbc_pw",pw);document.getElementById("loginScreen").style.display="none";document.getElementById("mainApp").style.display="block";try{var d=JSON.parse(r);allLeads=d.leads||[];updateLeadStats();filterLeads();loadStatus()}catch(e){}}else{document.getElementById("loginErr").style.display="block"}})}
 function doLogout(){sessionStorage.removeItem("fbc_pw");pw="";document.getElementById("mainApp").style.display="none";document.getElementById("loginScreen").style.display="flex";document.getElementById("pwInput").value="";document.getElementById("loginErr").style.display="none"}
 var saved=sessionStorage.getItem("fbc_pw");
-if(saved){pw=saved;apiGet("/api/leads",function(s,r){if(s===200){document.getElementById("loginScreen").style.display="none";document.getElementById("mainApp").style.display="block";try{var d=JSON.parse(r);allLeads=d.leads||[];updateLeadStats();filterLeads()}catch(e){}}else{sessionStorage.removeItem("fbc_pw")}})}
+if(saved){pw=saved;apiGet("/api/leads",function(s,r){if(s===200){document.getElementById("loginScreen").style.display="none";document.getElementById("mainApp").style.display="block";try{var d=JSON.parse(r);allLeads=d.leads||[];updateLeadStats();filterLeads();loadStatus()}catch(e){}}else{sessionStorage.removeItem("fbc_pw")}})}
 
 function apiGet(url,cb){var x=new XMLHttpRequest();x.open("GET",url);x.setRequestHeader("X-Admin-Password",pw);x.onload=function(){cb(x.status,x.responseText)};x.onerror=function(){cb(0,"")};x.send()}
 function apiPost(url,data,cb){var x=new XMLHttpRequest();x.open("POST",url);x.setRequestHeader("Content-Type","application/json");x.setRequestHeader("X-Admin-Password",pw);x.onload=function(){cb(x.status,x.responseText)};x.onerror=function(){cb(0,"")};x.send(JSON.stringify(data))}
@@ -140,6 +142,7 @@ function switchTab(n){var t=document.querySelectorAll(".tab"),p=document.querySe
 function closeModal(id){document.getElementById(id).className="modal"}
 document.querySelectorAll(".modal").forEach(function(m){m.addEventListener("click",function(e){if(e.target===m)m.className="modal"})});
 
+function loadStatus(){apiGet("/api/status",function(s,r){if(s!==200)return;try{var d=JSON.parse(r),p=d.health.lastProbe,em=d.health.lastEmailProbe,el=document.getElementById("botStatus");if(!p){el.textContent="Bot: not checked yet";el.className="status";el.title="The first automatic check runs shortly after each deploy";return}var ago=Math.max(0,Math.round((Date.now()-new Date(p.at).getTime())/60000));if(!p.ok){el.textContent="Bot DOWN \u00b7 "+(p.reason||"").slice(0,70);el.className="status down";el.title="Failing since "+new Date(d.health.downSince).toLocaleString()+" \u2014 "+p.reason}else if(em&&!em.ok){el.textContent="Bot OK \u00b7 Email DOWN \u00b7 "+(em.reason||"").slice(0,50);el.className="status down";el.title="Claude is answering but Gmail login failed: "+em.reason}else{el.textContent="Bot OK \u00b7 "+(p.latencyMs/1000).toFixed(1)+"s \u00b7 checked "+(ago<1?"just now":ago+"m ago");el.className="status ok";el.title="Last check "+new Date(p.at).toLocaleString()+" ("+p.source+"); "+d.health.passed+" passed, "+d.health.failed+" failed since restart"}}catch(e){}})}
 function sendSummary(){apiPost("/api/send-summary",{},function(s){alert(s===200?"Summary email sent!":"Could not send summary (HTTP "+s+")")})}
 
 // LEADS
@@ -180,6 +183,7 @@ function renderCharts(d){
 }
 
 setInterval(function(){if(pw)loadLeads()},30000);
+setInterval(function(){if(pw)loadStatus()},60000);
 </script>
 </body>
 </html>

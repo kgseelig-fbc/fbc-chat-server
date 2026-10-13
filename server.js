@@ -262,6 +262,7 @@ function sendWeeklySummary() {
   html += "<tr><td style='padding:8px 16px;background:#0B1D3A;color:white;font-weight:bold;'>Total Messages</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + totalMsgs + "</td></tr>";
   html += "<tr><td style='padding:8px 16px;background:#0B1D3A;color:white;font-weight:bold;'>New Leads</td><td style='padding:8px 16px;border:1px solid #ddd;font-size:20px;font-weight:bold;color:#166534;'>" + weekLeads.length + "</td></tr>";
   html += "<tr><td style='padding:8px 16px;background:#0B1D3A;color:white;font-weight:bold;'>Flagged Conversations</td><td style='padding:8px 16px;border:1px solid #ddd;color:#991B1B;'>" + flagged.length + "</td></tr>";
+  html += "<tr><td style='padding:8px 16px;background:#0B1D3A;color:white;font-weight:bold;'>Bot Health Checks</td><td style='padding:8px 16px;border:1px solid #ddd;'>" + health.passed + " passed, " + health.failed + " failed (since last restart)</td></tr>";
   html += "</table>";
 
   if (weekLeads.length > 0) {
@@ -483,15 +484,18 @@ app.get("/health", function(req, res) { res.json({ status: "ok" }); });
 var CLAUDE_MODEL = "claude-sonnet-5-5";
 var CLAUDE_TIMEOUT_MS = 45000;
 
-function callClaude(messages, callback) {
+// opts (optional): { system, maxTokens } — the health probe uses these to send a tiny request
+// through the exact same code path as real chat.
+function callClaude(messages, callback, opts) {
+  opts = opts || {};
   var body = JSON.stringify({
     model: CLAUDE_MODEL,
     // Thinking tokens count toward max_tokens, so leave room for both thinking and the reply.
-    max_tokens: 4096,
+    max_tokens: opts.maxTokens || 4096,
     // Sonnet 5.5 thinks before replying by default; "low" keeps that brief for chat latency.
     output_config: { effort: "low" },
     // The knowledge base is identical on every request — cache it so only the conversation is billed at full price.
-    system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+    system: opts.system ? [{ type: "text", text: opts.system }] : [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
     messages: messages
   });
   var options = {
@@ -522,6 +526,15 @@ function callClaude(messages, callback) {
   req.end();
 }
 
+// Read blocks by type: with thinking on, content[0] is usually a thinking block, not text.
+function textOf(data) {
+  var text = "";
+  ((data && data.content) || []).forEach(function(block) {
+    if (block && block.type === "text" && block.text) text += block.text;
+  });
+  return text;
+}
+
 // One retry for transient failures (overloaded, server error, dropped connection). Not for timeouts.
 function callClaudeWithRetry(messages, callback) {
   callClaude(messages, function(err, data, status) {
@@ -542,13 +555,15 @@ app.post("/api/chat", chatLimiter, validateOrigin, validateChatInput, function(r
     return { role: m.role === "assistant" ? "assistant" : "user", content: String(m.content).slice(0, 5000) };
   });
   callClaudeWithRetry(clean, function(err, data, status) {
-    if (err) { console.error("Error:", err.message); return res.status(502).json({ error: "AI unavailable" }); }
+    if (err) { console.error("Error:", err.message); noteChatFailure(); return res.status(502).json({ error: "AI unavailable" }); }
     if (status === 429 || status === 529) {
       console.warn("Claude API busy (HTTP " + status + ")");
+      noteChatFailure();
       return res.status(503).json({ error: "Too many requests right now. Please wait a moment and try again." });
     }
     if (status !== 200) {
       console.error("Claude API error (HTTP " + status + "):", JSON.stringify(data).slice(0, 500));
+      noteChatFailure();
       return res.status(502).json({ error: "AI unavailable" });
     }
 
@@ -557,12 +572,10 @@ app.post("/api/chat", chatLimiter, validateOrigin, validateChatInput, function(r
       console.warn("Claude declined to answer:", JSON.stringify(data.stop_details || {}));
       reply = REFUSAL_REPLY;
     } else {
-      // Read blocks by type: with thinking on, content[0] is usually a thinking block, not text.
-      (data.content || []).forEach(function(block) {
-        if (block && block.type === "text" && block.text) reply += block.text;
-      });
+      reply = textOf(data);
       if (!reply) {
         console.error("No text in response (stop_reason " + data.stop_reason + "):", JSON.stringify(data).slice(0, 500));
+        noteChatFailure();
         return res.status(502).json({ error: "AI unavailable" });
       }
       if (data.stop_reason === "max_tokens") console.warn("Reply truncated at max_tokens for conversation " + convId);
@@ -587,6 +600,171 @@ app.post("/api/chat", chatLimiter, validateOrigin, validateChatInput, function(r
     scheduleSave("conversations");
     res.json({ reply: reply });
   });
+});
+
+// ---------------------------------------------------------------------------
+// Health watchdog — proves the Claude path actually answers, not just that the process is up.
+// (/health stayed green for the whole month the bot was down on a retired model.)
+// ---------------------------------------------------------------------------
+var HEALTHCHECK_INTERVAL_MIN = parseInt(process.env.HEALTHCHECK_INTERVAL_MIN || "15", 10);
+if (isNaN(HEALTHCHECK_INTERVAL_MIN) || HEALTHCHECK_INTERVAL_MIN < 0) HEALTHCHECK_INTERVAL_MIN = 15;
+var ALERT_EMAIL = process.env.EMAIL_ALERTS || "kseelig@freedomboatclub.com";
+var REALERT_MS = 6 * 60 * 60 * 1000;
+
+var health = { lastProbe: null, lastEmailProbe: null, consecutiveFailures: 0, alerted: false, downSince: null, lastAlertAt: 0, passed: 0, failed: 0 };
+var lastProbeStartedAt = 0;
+
+function etNow() {
+  return new Date().toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "medium", timeStyle: "short" });
+}
+
+// One tiny real request on the production model and key, through the same callClaude as chat.
+function probeClaude(callback) {
+  var started = Date.now();
+  if (!process.env.ANTHROPIC_API_KEY) return callback({ ok: false, reason: "ANTHROPIC_API_KEY is not set" });
+  callClaude([{ role: "user", content: "Reply with the single word OK." }], function(err, data, status) {
+    var latencyMs = Date.now() - started;
+    if (err) return callback({ ok: false, reason: err.message, latencyMs: latencyMs });
+    if (status !== 200) {
+      var detail = (data && data.error && data.error.message) || JSON.stringify(data).slice(0, 200);
+      return callback({ ok: false, reason: "HTTP " + status + " from Claude API: " + detail, status: status, latencyMs: latencyMs });
+    }
+    var text = textOf(data);
+    if (!text) return callback({ ok: false, reason: "No text in response (stop_reason " + data.stop_reason + ")", status: status, latencyMs: latencyMs });
+    callback({ ok: true, status: 200, latencyMs: latencyMs, reply: text.slice(0, 40) });
+  }, { system: "You are a health check for a chat server. Reply with exactly: OK", maxTokens: 128 });
+}
+
+// SMTP login check — catches a rotated Gmail app password, which otherwise fails silently
+// while leads pile up unsent. Only run from the scheduled probe to keep Gmail logins modest.
+function probeEmail(callback) {
+  var transport = getGmailTransport();
+  if (!transport) return callback({ ok: true, skipped: true, reason: "Gmail not configured" });
+  var started = Date.now();
+  transport.verify(function(err) {
+    transport.close();
+    callback(err ? { ok: false, reason: err.message, latencyMs: Date.now() - started } : { ok: true, latencyMs: Date.now() - started });
+  });
+}
+
+function runProbe(source, callback) {
+  lastProbeStartedAt = Date.now();
+  probeClaude(function(result) {
+    recordProbe(result, source);
+    if (callback) callback(result);
+  });
+}
+
+function recordProbe(result, source) {
+  result.at = new Date().toISOString();
+  result.source = source;
+  health.lastProbe = result;
+  if (result.ok) {
+    health.passed++;
+    if (health.alerted) {
+      var downMin = Math.round((Date.now() - new Date(health.downSince).getTime()) / 60000);
+      console.log("Health probe OK again after about " + downMin + " min down");
+      sendHealthEmail("RESOLVED: FBC chat bot is responding again",
+        "<p>The chat bot at chat.freedomboatclub.ai is answering again as of " + etNow() + " ET, after about " + downMin + " minutes down.</p>" +
+        "<p>Last check took " + result.latencyMs + " ms.</p>");
+    }
+    health.consecutiveFailures = 0;
+    health.alerted = false;
+    health.downSince = null;
+    return;
+  }
+  health.failed++;
+  health.consecutiveFailures++;
+  if (!health.downSince) health.downSince = result.at;
+  console.error("Health probe FAILED (" + source + ", " + health.consecutiveFailures + " in a row): " + result.reason);
+  if (health.consecutiveFailures === 1) {
+    // A single failure can be a blip; confirm a minute later before alerting anyone.
+    setTimeout(function() { runProbe("retry"); }, 60000).unref();
+    return;
+  }
+  if (!health.alerted || Date.now() - health.lastAlertAt > REALERT_MS) {
+    health.alerted = true;
+    health.lastAlertAt = Date.now();
+    var railwayUrl = process.env.RAILWAY_PROJECT_ID
+      ? "https://railway.com/project/" + process.env.RAILWAY_PROJECT_ID + (process.env.RAILWAY_SERVICE_ID ? "/service/" + process.env.RAILWAY_SERVICE_ID : "")
+      : "https://railway.com";
+    sendHealthEmail("ALERT: FBC chat bot is not responding",
+      "<h2>The FBC chat bot is not answering</h2>" +
+      "<p>Since " + new Date(health.downSince).toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "medium", timeStyle: "short" }) + " ET &mdash; " + health.consecutiveFailures + " failed checks in a row.</p>" +
+      "<p><strong>Reason:</strong> " + escHtml(result.reason) + "</p>" +
+      "<p>Visitors to the chat widget currently see \"I'm having trouble right now\" instead of answers.</p>" +
+      "<h3>What to check</h3><ol>" +
+      "<li>Server logs on Railway: <a href='" + railwayUrl + "'>" + railwayUrl + "</a></li>" +
+      "<li>Anthropic status page: <a href='https://status.claude.com'>status.claude.com</a></li>" +
+      "<li>API key and billing: <a href='https://platform.claude.com'>platform.claude.com</a></li></ol>" +
+      "<p>This check runs every " + HEALTHCHECK_INTERVAL_MIN + " minutes. You will get a RESOLVED email when it recovers, and a reminder every 6 hours while it stays down.</p>");
+  }
+}
+
+function recordEmailProbe(result) {
+  result.at = new Date().toISOString();
+  var was = health.lastEmailProbe;
+  health.lastEmailProbe = result;
+  if (!result.ok) console.error("Email check FAILED: " + result.reason);
+  else if (was && !was.ok) console.log("Email check OK again");
+}
+
+function sendHealthEmail(subject, html) {
+  var transport = getGmailTransport();
+  if (!transport) { console.warn("Gmail not configured - cannot send health email: " + subject); return; }
+  transport.sendMail({
+    from: '"FBC Chat Monitor" <' + process.env.GMAIL_USER + '>',
+    to: ALERT_EMAIL,
+    subject: subject,
+    html: html
+  }, function(err) { if (err) console.error("Health email error:", err.message); else console.log("Health email sent: " + subject); });
+}
+
+// Real traffic failing is the strongest signal there is; confirm with a probe, at most once a minute.
+function noteChatFailure() {
+  if (HEALTHCHECK_INTERVAL_MIN === 0) return;
+  if (Date.now() - lastProbeStartedAt < 60000) return;
+  runProbe("traffic");
+}
+
+if (HEALTHCHECK_INTERVAL_MIN > 0) {
+  // Probe shortly after boot so a broken deploy is caught within a couple of minutes.
+  setTimeout(function() { runProbe("startup"); probeEmail(recordEmailProbe); }, 20000).unref();
+  setInterval(function() { runProbe("scheduled"); probeEmail(recordEmailProbe); }, HEALTHCHECK_INTERVAL_MIN * 60000).unref();
+}
+
+var healthLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 12,
+  message: { error: "Too many health checks. Please slow down." },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// Deep health check for an external uptime monitor: runs a real probe and answers 200 when the
+// bot responds, 503 when it does not (or when the last email check failed). Disabled unless
+// HEALTHCHECK_TOKEN is set, so nobody can spend API calls anonymously.
+app.get("/api/health/deep", healthLimiter, function(req, res) {
+  var token = process.env.HEALTHCHECK_TOKEN;
+  if (!token) return res.status(404).json({ error: "Not found" });
+  var supplied = req.query.token || req.headers["x-healthcheck-token"] || "";
+  if (!safeEqual(supplied, token)) return res.status(401).json({ error: "Unauthorized" });
+  runProbe("deep", function(result) {
+    var email = health.lastEmailProbe;
+    var emailOk = !email || email.ok;
+    res.status(result.ok && emailOk ? 200 : 503).json({
+      ok: result.ok && emailOk,
+      claude: { ok: result.ok, reason: result.reason || null, latencyMs: result.latencyMs, model: CLAUDE_MODEL },
+      email: email || { skipped: true, reason: "not checked yet" },
+      checkedAt: result.at,
+      consecutiveFailures: health.consecutiveFailures
+    });
+  });
+});
+
+app.get("/api/status", adminLimiter, function(req, res) {
+  if (!checkAuth(req)) return res.status(401).json({ error: "Unauthorized" });
+  res.json({ health: health, model: CLAUDE_MODEL, intervalMin: HEALTHCHECK_INTERVAL_MIN, storage: DATA_DIR ? "persisted" : "memory", uptimeSec: Math.round(process.uptime()) });
 });
 
 // ---------------------------------------------------------------------------
@@ -930,5 +1108,6 @@ app.listen(PORT, "0.0.0.0", function() {
   console.log("Gmail: " + (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD ? "configured" : "NOT SET"));
   if (!process.env.ADMIN_PASSWORD) console.warn("ADMIN_PASSWORD not set - dashboard is using the default password");
   console.log("Storage: " + (DATA_DIR ? "persisted to " + DATA_DIR : "in memory only (set DATA_DIR to a volume path to persist)"));
+  console.log("Health checks: " + (HEALTHCHECK_INTERVAL_MIN > 0 ? "every " + HEALTHCHECK_INTERVAL_MIN + " min, alerts to " + ALERT_EMAIL : "disabled") + (process.env.HEALTHCHECK_TOKEN ? "; /api/health/deep enabled" : "; /api/health/deep disabled (set HEALTHCHECK_TOKEN)"));
   console.log("Dashboard: /dashboard");
 });
