@@ -4,6 +4,8 @@
 process.env.PORT = "3999";
 process.env.ANTHROPIC_API_KEY = "test-key";
 process.env.ADMIN_PASSWORD = "secret-pw";
+process.env.HEALTHCHECK_INTERVAL_MIN = "0"; // no timer-driven probes during the test; the deep endpoint drives them
+process.env.HEALTHCHECK_TOKEN = "probe-token";
 delete process.env.GMAIL_USER; // no email attempts
 
 // Persistence: seed a data dir so we can check it loads at boot and saves after changes.
@@ -30,7 +32,7 @@ https.request = function (opts, cb) {
   req.end = function () {
     captured.push(JSON.parse(req.body));
     var s = scripted.shift();
-    if (!s) throw new Error("fake API: no scripted response left");
+    if (!s) { console.error("fake API: no scripted response left; answering 500"); s = { status: 500, body: JSON.stringify({ type: "error", error: { type: "api_error", message: "unscripted request" } }) }; }
     var res = new EventEmitter();
     res.statusCode = s.status;
     res.setEncoding = function (enc) { res.enc = enc; };
@@ -179,6 +181,39 @@ setTimeout(async function () {
     check("/api/lead good origin -> 200", r.status === 200, r.status + " " + r.body);
     r = await call("POST", "/api/lead", {}, {});
     check("/api/lead empty -> 400", r.status === 400, r.status);
+
+    // 10b. Deep health check and the watchdog's alert state machine.
+    var cap0 = captured.length;
+    r = await call("GET", "/api/health/deep");
+    check("deep health without token -> 401", r.status === 401, r.status);
+    r = await call("GET", "/api/health/deep?token=wrong");
+    check("deep health wrong token -> 401", r.status === 401, r.status);
+    scripted.push({ status: 200, body: apiMsg([{ type: "thinking", thinking: "", signature: "x" }, { type: "text", text: "OK" }]) });
+    r = await call("GET", "/api/health/deep?token=probe-token");
+    var dj = JSON.parse(r.body);
+    check("deep health OK -> 200 ok:true", r.status === 200 && dj.ok === true && dj.claude.ok === true && dj.claude.model === "claude-sonnet-5-5", r.status + " " + r.body);
+    var probeReq = captured[captured.length - 1];
+    check("probe request is tiny: max_tokens 128, own system prompt, no cache marker, effort low", captured.length === cap0 + 1 && probeReq.max_tokens === 128 && /health check/i.test(probeReq.system[0].text) && probeReq.system[0].cache_control === undefined && probeReq.output_config.effort === "low", JSON.stringify(probeReq).slice(0, 300));
+    scripted.push({ status: 401, body: JSON.stringify({ type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } }) });
+    r = await call("GET", "/api/health/deep?token=probe-token");
+    dj = JSON.parse(r.body);
+    check("deep health on API 401 -> 503 with reason", r.status === 503 && dj.ok === false && /HTTP 401/.test(dj.claude.reason) && /invalid x-api-key/.test(dj.claude.reason), r.status + " " + r.body);
+    r = await call("GET", "/api/status", null, { "X-Admin-Password": "secret-pw" });
+    var st = JSON.parse(r.body);
+    check("one failure: not alerted yet, re-check pending", st.health.consecutiveFailures === 1 && st.health.alerted === false && !!st.health.downSince, r.body.slice(0, 300));
+    scripted.push({ status: 404, body: JSON.stringify({ type: "error", error: { type: "not_found_error", message: "model: claude-sonnet-5-5" } }) });
+    r = await call("GET", "/api/health/deep?token=probe-token");
+    check("second failure -> 503", r.status === 503, r.status + " " + r.body);
+    r = await call("GET", "/api/status", null, { "X-Admin-Password": "secret-pw" });
+    st = JSON.parse(r.body);
+    check("two failures in a row: alerted", st.health.consecutiveFailures === 2 && st.health.alerted === true && st.health.failed === 2, r.body.slice(0, 300));
+    scripted.push({ status: 200, body: apiMsg([{ type: "text", text: "OK" }]) });
+    var rr = await call("GET", "/api/health/deep?token=probe-token");
+    r = await call("GET", "/api/status", null, { "X-Admin-Password": "secret-pw" });
+    st = JSON.parse(r.body);
+    check("recovery: 200, alert cleared, counters kept", rr.status === 200 && st.health.alerted === false && st.health.consecutiveFailures === 0 && st.health.downSince === null && st.health.passed === 2 && st.health.failed === 2, rr.status + " " + r.body.slice(0, 300));
+    r = await call("GET", "/api/status");
+    check("/api/status without password -> 401", r.status === 401, r.status);
 
     // 11. Persistence: debounced saves landed on disk (2s debounce).
     await new Promise(function (ok) { setTimeout(ok, 2600); });

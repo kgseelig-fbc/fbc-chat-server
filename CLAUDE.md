@@ -14,7 +14,7 @@ FBC Chat Server (v2.1.0) — AI-powered customer service chatbot for Freedom Boa
 
 ## Required Environment Variables
 
-`ANTHROPIC_API_KEY`, `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `ADMIN_PASSWORD` (default: "fbc2024"). Optional location-specific email routing: `EMAIL_JAX`, `EMAIL_JULINGTON`, `EMAIL_STAUGUSTINE`, `EMAIL_DEFAULT`. Optional `DATA_DIR`: directory (a Railway volume mount, e.g. `/data`) where leads and conversations are persisted as JSON; unset = in-memory only.
+`ANTHROPIC_API_KEY`, `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `ADMIN_PASSWORD` (default: "fbc2024"). Optional location-specific email routing: `EMAIL_JAX`, `EMAIL_JULINGTON`, `EMAIL_STAUGUSTINE`, `EMAIL_DEFAULT`. Optional `DATA_DIR`: directory (a Railway volume mount, e.g. `/data`) where leads and conversations are persisted as JSON; unset = in-memory only. Health watchdog: `HEALTHCHECK_INTERVAL_MIN` (default 15; `0` disables), `HEALTHCHECK_TOKEN` (enables `GET /api/health/deep?token=…` for an external uptime monitor; unset = 404), `EMAIL_ALERTS` (where outage emails go; default kseelig@freedomboatclub.com).
 
 ## Architecture
 
@@ -33,6 +33,7 @@ Single-file Express backend (`server.js`) serving two static frontends from `pub
 - Conversation analysis: keyword-based sentiment detection and quality flagging (complaint, unanswered, long, negative)
 - Weekly summary email via `setInterval` checking for Monday 8am ET (guarded by `lastSummaryDate` so it sends exactly once)
 - Analytics hour/day buckets are computed in America/New_York via `etHourAndDay()`; the server itself runs in UTC
+- Health watchdog (`probeClaude` / `recordProbe`): every `HEALTHCHECK_INTERVAL_MIN` minutes, and 20s after boot, sends a tiny real request through `callClaude` (`opts.system` / `opts.maxTokens`, no cache marker) plus an SMTP login check (`probeEmail`). One failure schedules a 60s re-check; two in a row email an ALERT to `EMAIL_ALERTS` (RESOLVED on recovery, reminder every 6h). Failed real chat requests call `noteChatFailure()` to probe immediately. `/health` only proves the process is up — it stayed green for a month while the model was retired; `/api/health/deep` is the one to monitor externally.
 - System prompt (`SYSTEM_PROMPT` variable) contains the full FBC knowledge base with XML-delimited sections
 
 **public/logo.js** — defines `LOGO`, an 82K-character base64 data URI for the club logo, loaded by both pages. Don't read it; nothing else is in there.
@@ -48,9 +49,9 @@ Single-file Express backend (`server.js`) serving two static frontends from `pub
 
 ## Key API Endpoints
 
-Public: `POST /api/chat`, `POST /api/lead`, `GET /health`
+Public: `POST /api/chat`, `POST /api/lead`, `GET /health` (process up only), `GET /api/health/deep?token=…` (real Claude probe; 200/503; needs `HEALTHCHECK_TOKEN`)
 Dashboard page: `GET /dashboard`
-Admin (require password): `GET /api/leads`, `POST /api/leads/status`, `GET /api/conversations`, `GET /api/conversations/:id`, `GET /api/analytics`, `POST /api/send-summary`
+Admin (require password): `GET /api/leads`, `POST /api/leads/status`, `GET /api/conversations`, `GET /api/conversations/:id`, `GET /api/analytics`, `POST /api/send-summary`, `GET /api/status` (watchdog state; drives the "Bot OK / DOWN" pill in the dashboard header)
 
 ## Important Patterns
 
