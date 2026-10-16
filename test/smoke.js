@@ -245,6 +245,38 @@ setTimeout(async function () {
     check("non-array messages -> 400", r.status === 400, r.status);
     r = await call("GET", "/health");
     check("health ok", r.status === 200, r.status);
+
+    // 14. Public pages derived from the knowledge base, and noindex on everything admin.
+    var faq = require(path.join(__dirname, "..", "faq.js"));
+    var guard = faq.publicTextGuard();
+    function guardHits(text) { return guard.filter(function (re) { return re.test(text); }).map(String); }
+    var pages = {};
+    pages.faq = await call("GET", "/faq");
+    pages.llms = await call("GET", "/llms.txt");
+    pages.robots = await call("GET", "/robots.txt");
+    pages.sitemap = await call("GET", "/sitemap.xml");
+    check("/faq 200 html", pages.faq.status === 200 && /<!DOCTYPE html>/.test(pages.faq.body), pages.faq.status);
+    check("/faq has one section per published knowledge-base tag", faq.SECTIONS.every(function (s) { return pages.faq.body.indexOf('<section id="' + s.tag + '">') !== -1; }), "missing section");
+    var ld = pages.faq.body.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g).map(function (s) { return JSON.parse(s.replace(/^<script[^>]*>|<\/script>$/g, "")); });
+    var faqLd = ld.filter(function (o) { return o["@type"] === "FAQPage"; })[0];
+    var orgLd = ld.filter(function (o) { return o["@type"] === "Organization"; })[0];
+    check("/faq FAQPage JSON-LD has every question with a non-empty answer", faqLd && faqLd.mainEntity.length === faq.SECTIONS.length && faqLd.mainEntity.every(function (q) { return q.acceptedAnswer.text.length > 20; }), JSON.stringify(faqLd).slice(0, 200));
+    check("/faq Organization JSON-LD names the club and phone", orgLd && orgLd.name === "Freedom Boat Club of NE Florida" && orgLd.telephone === "+19043297456", JSON.stringify(orgLd).slice(0, 200));
+    check("/faq carries facts from the prompt (dues range, phone, offshore limit)", /\$329-\$899/.test(pages.faq.body) && /904-329-7456/.test(pages.faq.body) && /15 NM offshore limit/.test(pages.faq.body), "facts missing");
+    check("/faq has canonical, description and robots index", /rel="canonical" href="https:\/\/chat\.freedomboatclub\.ai\/faq"/.test(pages.faq.body) && /name="description"/.test(pages.faq.body) && /name="robots" content="index/.test(pages.faq.body), "meta missing");
+    check("/faq publishes no bot instructions, staff mailboxes or internal names", guardHits(pages.faq.body).length === 0, guardHits(pages.faq.body).join(" "));
+    check("/faq bot-only sentence stripped mid-line ('Always recommend the app first')", pages.faq.body.indexOf("recommend the app first") === -1, "sentence leaked");
+    check("/llms.txt 200 text/plain markdown", pages.llms.status === 200 && pages.llms.body.indexOf("# Freedom Boat Club of NE Florida\n") === 0 && /\n## How do reservations work\?\n/.test(pages.llms.body), pages.llms.status + " " + pages.llms.body.slice(0, 80));
+    check("/llms.txt publishes no bot instructions, staff mailboxes or internal names", guardHits(pages.llms.body).length === 0, guardHits(pages.llms.body).join(" "));
+    check("/robots.txt disallows dashboard and api, points at sitemap", pages.robots.status === 200 && /Disallow: \/dashboard\n/.test(pages.robots.body) && /Disallow: \/api\/\n/.test(pages.robots.body) && /Sitemap: https:\/\/chat\.freedomboatclub\.ai\/sitemap\.xml/.test(pages.robots.body), pages.robots.body);
+    check("/sitemap.xml lists /faq and /", pages.sitemap.status === 200 && /<loc>https:\/\/chat\.freedomboatclub\.ai\/faq<\/loc>/.test(pages.sitemap.body) && /<loc>https:\/\/chat\.freedomboatclub\.ai\/<\/loc>/.test(pages.sitemap.body), pages.sitemap.body);
+    var robotsHdr = function (res) { return res.headers["x-robots-tag"]; };
+    var hdrCall = function (p) { return new Promise(function (resolve, reject) { var rq = http.request({ host: "127.0.0.1", port: 3999, method: "GET", path: p }, function (res) { res.resume(); res.on("end", function () { resolve(res); }); }); rq.on("error", reject); rq.end(); }); };
+    var hd = await hdrCall("/dashboard"), hdHtml = await hdrCall("/dashboard.html"), hApi = await hdrCall("/api/leads"), hFaq = await hdrCall("/faq"), hRoot = await hdrCall("/");
+    check("X-Robots-Tag noindex on /dashboard, /dashboard.html and /api/*", /noindex/.test(robotsHdr(hd)) && /noindex/.test(robotsHdr(hdHtml)) && /noindex/.test(robotsHdr(hApi)), [robotsHdr(hd), robotsHdr(hdHtml), robotsHdr(hApi)].join("|"));
+    check("no X-Robots-Tag on / and /faq", robotsHdr(hFaq) === undefined && robotsHdr(hRoot) === undefined, [robotsHdr(hFaq), robotsHdr(hRoot)].join("|"));
+    var logo = await hdrCall("/logo.png");
+    check("/logo.png served as image/png for OG and schema", logo.statusCode === 200 && logo.headers["content-type"] === "image/png", logo.statusCode + " " + logo.headers["content-type"]);
   } catch (e) {
     console.error("TEST ERROR", e);
     failures++;
