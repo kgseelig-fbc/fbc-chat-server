@@ -17,13 +17,6 @@ var SITE = {
   parentUrl: "https://www.freedomboatclub.com",
   reservationsUrl: "https://reservations.freedomboatclub.com",
   area: "Jacksonville and St. Augustine, Florida",
-  locations: [
-    "Jacksonville Beach",
-    "Julington Creek East",
-    "Julington Creek West",
-    "St. Augustine Camachee Cove",
-    "St. Augustine Shipyard"
-  ],
   description: "Freedom Boat Club of NE Florida is a members-only boat club with five locations in Jacksonville Beach, Julington Creek and St. Augustine. Members get unlimited access to a private fleet of pontoons, deck boats, bay boats and offshore center consoles, with maintenance, cleaning, storage, insurance and training included."
 };
 
@@ -39,7 +32,8 @@ function baseUrl() {
 // answer from the public page.
 var SECTIONS = [
   { tag: "about", question: "What is Freedom Boat Club of NE Florida?" },
-  { tag: "local_access", question: "Where are your locations?" },
+  { tag: "locations", question: "Where are your docks located?" },
+  { tag: "local_access", question: "Can members use all five locations?" },
   { tag: "membership_plans", question: "What membership plans do you offer?" },
   { tag: "pricing", question: "How much does Freedom Boat Club cost?" },
   { tag: "whats_included", question: "What is included in a membership?" },
@@ -143,6 +137,28 @@ function sections(prompt) {
   });
 }
 
+// The <locations> section holds one dock per line: "Name: street[, unit], City, FL 12345."
+// Parsed from the right so a street with its own comma (a unit number) survives.
+var LOCATION_LINE = /^([^:]+): (.+), ([^,]+), ([A-Z]{2}) (\d{5})\.$/;
+
+// Returns [{ name, street, city, state, zip }] for every dock in the knowledge base.
+// Throws if the section is missing or a line does not parse, so a typo in an
+// address fails at boot instead of publishing a half-formed PostalAddress.
+function locations(prompt) {
+  var raw = sectionText(prompt, "locations");
+  if (raw === null) throw new Error("faq.js: knowledge base section <locations> not found in SYSTEM_PROMPT");
+  var out = [];
+  raw.split("\n").forEach(function (line) {
+    line = line.replace(/\s+$/, "");
+    if (!line || /^All five docks/.test(line)) return;
+    var m = LOCATION_LINE.exec(line);
+    if (!m) throw new Error("faq.js: <locations> line does not match 'Name: street, City, ST 12345.': " + line);
+    out.push({ name: m[1], street: m[2], city: m[3], state: m[4], zip: m[5] });
+  });
+  if (out.length === 0) throw new Error("faq.js: <locations> has no docks");
+  return out;
+}
+
 // Strings that must never appear on a crawlable page. The smoke test runs the
 // rendered FAQ and llms.txt through this list.
 function publicTextGuard() {
@@ -157,17 +173,47 @@ function esc(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function organizationJsonLd() {
+function postalAddress(loc) {
+  return {
+    "@type": "PostalAddress",
+    "streetAddress": loc.street,
+    "addressLocality": loc.city,
+    "addressRegion": loc.state,
+    "postalCode": loc.zip,
+    "addressCountry": "US"
+  };
+}
+
+function organizationJsonLd(prompt) {
+  var url = baseUrl();
+  var docks = locations(prompt);
+  var cities = [];
+  docks.forEach(function (d) { if (cities.indexOf(d.city) === -1) cities.push(d.city); });
   return {
     "@context": "https://schema.org",
     "@type": "Organization",
     "name": SITE.name,
     "alternateName": SITE.shortName,
-    "url": baseUrl() + "/",
-    "logo": baseUrl() + "/logo.png",
+    "url": url + "/",
+    "logo": url + "/logo.png",
+    "image": url + "/logo.png",
     "telephone": SITE.phoneE164,
     "description": SITE.description,
-    "areaServed": SITE.locations.map(function (l) { return { "@type": "Place", "name": l + ", Florida" }; }),
+    "address": docks.map(postalAddress),
+    "areaServed": cities.map(function (c) { return { "@type": "City", "name": c + ", Florida" }; }),
+    // One LocalBusiness per dock, so each address is a place of its own rather
+    // than five addresses on one entity.
+    "department": docks.map(function (d) {
+      return {
+        "@type": "LocalBusiness",
+        "name": SITE.parent + " " + d.name,
+        "image": url + "/logo.png",
+        "url": url + "/faq#locations",
+        "telephone": SITE.phoneE164,
+        "address": postalAddress(d),
+        "parentOrganization": { "@type": "Organization", "name": SITE.name }
+      };
+    }),
     "parentOrganization": { "@type": "Organization", "name": SITE.parent, "url": SITE.parentUrl },
     "sameAs": [SITE.parentUrl, SITE.reservationsUrl],
     "contactPoint": { "@type": "ContactPoint", "telephone": SITE.phoneE164, "contactType": "customer service", "areaServed": "US-FL", "availableLanguage": "English" }
@@ -237,7 +283,7 @@ function renderFaqHtml(prompt) {
     '<meta name="twitter:image" content="' + url + '/logo.png">',
     '<link rel="icon" href="/logo.png" type="image/png">',
     '<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">',
-    '<script type="application/ld+json">' + jsonForHtml(organizationJsonLd()) + "</script>",
+    '<script type="application/ld+json">' + jsonForHtml(organizationJsonLd(prompt)) + "</script>",
     '<script type="application/ld+json">' + jsonForHtml(faqJsonLd(secs)) + "</script>",
     "<style>",
     ":root{--navy:#0B1D3A;--blue:#1B6EC2;--sky:#E8F2FC;--g50:#F8FAFB;--g200:#D8DDE5;--g600:#5A6577;--g800:#2C3544}",
@@ -279,7 +325,7 @@ function renderLlmsTxt(prompt) {
     "",
     "> " + SITE.description,
     "",
-    "Locations: " + SITE.locations.join("; ") + ".",
+    "Locations: " + locations(prompt).map(function (d) { return d.name + " (" + d.street + ", " + d.city + ", " + d.state + " " + d.zip + ")"; }).join("; ") + ".",
     "Phone: " + SITE.phone + ". Reservations: " + SITE.reservationsUrl + ". Part of " + SITE.parent + " (" + SITE.parentUrl + ").",
     "Chat assistant: " + url + "/ — FAQ page: " + url + "/faq",
     "",
@@ -335,6 +381,7 @@ module.exports = {
   SECTIONS: SECTIONS,
   baseUrl: baseUrl,
   sections: sections,
+  locations: locations,
   publicTextGuard: publicTextGuard,
   organizationJsonLd: organizationJsonLd,
   faqJsonLd: faqJsonLd,
