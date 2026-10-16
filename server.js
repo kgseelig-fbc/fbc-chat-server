@@ -957,6 +957,17 @@ var SYSTEM_PROMPT = [
   "Operated under Affordable Boating of North Florida. Part of the Freedom Boat Club system (Brunswick Corporation brand), founded 1989. 400+ locations worldwide, 90,000+ members. Private fleet — boats are never rented to non-members. Open year-round in NE Florida. We regularly sell used fleet vessels — members and the public can browse boats for sale at affordableboating.com.",
   "</about>",
   "",
+  // One dock per line as "Name: street, city, FL zip." — faq.js parses these into
+  // the LocalBusiness entries on the public FAQ page, so keep the shape.
+  "<locations>",
+  "Jacksonville Beach: 2315 Beach Blvd, Jacksonville Beach, FL 32250.",
+  "Julington Creek East: 12807 San Jose Blvd, Jacksonville, FL 32223.",
+  "Julington Creek West: 12796 San Jose Blvd, Jacksonville, FL 32223.",
+  "St. Augustine Camachee Cove: 3036A Harbor Drive, St. Augustine, FL 32084.",
+  "St. Augustine Shipyard: 76 Dockside Drive, Unit 105, St. Augustine, FL 32084.",
+  "All five docks share one phone number: 904-329-7456.",
+  "</locations>",
+  "",
   "<hours>",
   "Weekday dock opening: 8 AM Monday through Friday.",
   "Weekend dock opening: 30 minutes after sunrise.",
@@ -1156,6 +1167,7 @@ var SYSTEM_PROMPT = [
 // Fail at boot, not on the first crawler visit, if a published FAQ section was
 // renamed or removed from the knowledge base above.
 faq.sections(SYSTEM_PROMPT);
+faq.locations(SYSTEM_PROMPT);
 
 // ---------------------------------------------------------------------------
 // Start
