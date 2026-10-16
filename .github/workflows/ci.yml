@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Syntax errors surface here with a file and line, instead of as a
+      # cryptic boot failure inside the smoke test.
+      - name: Syntax check
+        run: node --check server.js && node --check faq.js && node --check test/smoke.js
+
+      # test/smoke.js boots the server against a fake Anthropic API — no
+      # network, no API key — and drives chat, lead capture, retries, admin
+      # auth and the public FAQ/llms.txt pages over real HTTP.
+      - name: Smoke test
+        run: npm test

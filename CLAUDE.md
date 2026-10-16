@@ -9,7 +9,8 @@ FBC Chat Server (v2.1.0) — AI-powered customer service chatbot for Freedom Boa
 ## Commands
 
 - `npm start` or `node server.js` — start the server (default port 3000)
-- `npm test` — runs `test/smoke.js`: boots the server on port 3999 against a fake Anthropic API (no network, no key) and exercises chat, lead capture, retries, refusals, admin auth and validation. Run it before every push; add a case whenever you change `/api/chat`.
+- `npm test` — runs `test/smoke.js`: boots the server on port 3999 against a fake Anthropic API (no network, no key) and exercises chat, lead capture, retries, refusals, admin auth, validation and the public FAQ/llms.txt pages. Run it before every push; add a case whenever you change `/api/chat` or faq.js.
+- CI (`.github/workflows/ci.yml`) runs `npm ci`, a `node --check` of every entry file, and `npm test` on every push to `main` and every pull request.
 - No linter or build step configured
 
 ## Required Environment Variables
