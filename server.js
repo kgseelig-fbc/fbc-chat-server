@@ -7,6 +7,7 @@ var crypto = require("crypto");
 var nodemailer = require("nodemailer");
 var helmet = require("helmet");
 var rateLimit = require("express-rate-limit");
+var faq = require("./faq");
 
 var app = express();
 var PORT = process.env.PORT || 3000;
@@ -122,6 +123,17 @@ function validateChatInput(req, res, next) {
 }
 
 app.use(express.json({ limit: "100kb" }));
+
+// Keep the admin dashboard and the API out of search engines. Helmet does not
+// set X-Robots-Tag, and express.static below serves /dashboard.html directly,
+// so this runs ahead of it. The widget (/), /faq and /llms.txt stay indexable.
+app.use(function(req, res, next) {
+  if (req.path.indexOf("/dashboard") === 0 || req.path.indexOf("/api/") === 0) {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
+  }
+  next();
+});
+
 app.use(express.static(path.join(__dirname, "public")));
 
 // ---------------------------------------------------------------------------
@@ -450,6 +462,48 @@ app.post("/api/lead", leadLimiter, validateOrigin, function(req, res) {
 
 app.get("/dashboard", function(req, res) {
   res.sendFile(path.join(__dirname, "public", "dashboard.html"));
+});
+
+// ---------------------------------------------------------------------------
+// Public, crawlable pages — derived from SYSTEM_PROMPT at request time (faq.js)
+// so the FAQ, llms.txt and the bot can never disagree. Cached for an hour at
+// the edge; the content only changes when the prompt is edited and redeployed.
+// ---------------------------------------------------------------------------
+function publicPage(res, type, body) {
+  res.setHeader("Content-Type", type);
+  res.setHeader("Cache-Control", "public, max-age=3600");
+  res.send(body);
+}
+
+app.get("/faq", function(req, res) {
+  publicPage(res, "text/html; charset=utf-8", faq.renderFaqHtml(SYSTEM_PROMPT));
+});
+
+app.get("/llms.txt", function(req, res) {
+  publicPage(res, "text/plain; charset=utf-8", faq.renderLlmsTxt(SYSTEM_PROMPT));
+});
+
+app.get("/robots.txt", function(req, res) {
+  publicPage(res, "text/plain; charset=utf-8", faq.renderRobotsTxt());
+});
+
+app.get("/sitemap.xml", function(req, res) {
+  publicPage(res, "application/xml; charset=utf-8", faq.renderSitemapXml());
+});
+
+// The club logo as a real image URL for Open Graph tags and the Organization
+// schema; the widget and dashboard load it as a data URI from public/logo.js.
+var LOGO_PNG = (function() {
+  try {
+    var m = /base64,([A-Za-z0-9+\/=]+)/.exec(fs.readFileSync(path.join(__dirname, "public", "logo.js"), "utf8"));
+    return m ? Buffer.from(m[1], "base64") : null;
+  } catch (e) { return null; }
+})();
+app.get("/logo.png", function(req, res) {
+  if (!LOGO_PNG) return res.status(404).end();
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.send(LOGO_PNG);
 });
 
 app.get("/api/leads", adminLimiter, function(req, res) {
@@ -1099,6 +1153,10 @@ var SYSTEM_PROMPT = [
   "</knowledge_base>"
 ].join("\n");
 
+// Fail at boot, not on the first crawler visit, if a published FAQ section was
+// renamed or removed from the knowledge base above.
+faq.sections(SYSTEM_PROMPT);
+
 // ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
@@ -1110,4 +1168,5 @@ app.listen(PORT, "0.0.0.0", function() {
   console.log("Storage: " + (DATA_DIR ? "persisted to " + DATA_DIR : "in memory only (set DATA_DIR to a volume path to persist)"));
   console.log("Health checks: " + (HEALTHCHECK_INTERVAL_MIN > 0 ? "every " + HEALTHCHECK_INTERVAL_MIN + " min, alerts to " + ALERT_EMAIL : "disabled") + (process.env.HEALTHCHECK_TOKEN ? "; /api/health/deep enabled" : "; /api/health/deep disabled (set HEALTHCHECK_TOKEN)"));
   console.log("Dashboard: /dashboard");
+  console.log("Public pages: /faq, /llms.txt, /robots.txt, /sitemap.xml at " + faq.baseUrl());
 });

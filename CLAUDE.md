@@ -36,6 +36,8 @@ Single-file Express backend (`server.js`) serving two static frontends from `pub
 - Health watchdog (`probeClaude` / `recordProbe`): every `HEALTHCHECK_INTERVAL_MIN` minutes, and 20s after boot, sends a tiny real request through `callClaude` (`opts.system` / `opts.maxTokens`, no cache marker) plus an SMTP login check (`probeEmail`). One failure schedules a 60s re-check; two in a row email an ALERT to `EMAIL_ALERTS` (RESOLVED on recovery, reminder every 6h). Failed real chat requests call `noteChatFailure()` to probe immediately. `/health` only proves the process is up — it stayed green for a month while the model was retired; `/api/health/deep` is the one to monitor externally.
 - System prompt (`SYSTEM_PROMPT` variable) contains the full FBC knowledge base with XML-delimited sections
 
+**faq.js** — public, crawlable pages derived from `SYSTEM_PROMPT` at request time: `GET /faq` (HTML with `FAQPage` + `Organization` JSON-LD), `GET /llms.txt` (Markdown for AI crawlers), `GET /robots.txt`, `GET /sitemap.xml`, and `GET /logo.png` (the logo decoded from `public/logo.js`, for Open Graph tags). `SECTIONS` lists which `<knowledge_base>` tags are published and the question each answers; a listed tag missing from the prompt throws at boot. Lines that instruct the bot (starting `Always`/`Never`/`IMPORTANT:`, or a trailing "Always …" sentence) are stripped, staff mailboxes are dropped or redacted per section, and `publicTextGuard()` is the list of strings that must never reach a public page — the smoke test runs both renders through it. The FAQ is the GEO/AEO surface: edit facts in the prompt, never in faq.js, so the bot and the page cannot disagree. `PUBLIC_URL` (default `https://chat.freedomboatclub.ai`) sets canonical/sitemap URLs. `/dashboard*` and `/api/*` get `X-Robots-Tag: noindex` from a middleware ahead of `express.static`.
+
 **public/logo.js** — defines `LOGO`, an 82K-character base64 data URI for the club logo, loaded by both pages. Don't read it; nothing else is in there.
 
 **public/index.html** — chat widget:
@@ -50,6 +52,7 @@ Single-file Express backend (`server.js`) serving two static frontends from `pub
 ## Key API Endpoints
 
 Public: `POST /api/chat`, `POST /api/lead`, `GET /health` (process up only), `GET /api/health/deep?token=…` (real Claude probe; 200/503; needs `HEALTHCHECK_TOKEN`)
+Crawlable (from `faq.js`): `GET /faq`, `GET /llms.txt`, `GET /robots.txt`, `GET /sitemap.xml`, `GET /logo.png`
 Dashboard page: `GET /dashboard`
 Admin (require password): `GET /api/leads`, `POST /api/leads/status`, `GET /api/conversations`, `GET /api/conversations/:id`, `GET /api/analytics`, `POST /api/send-summary`, `GET /api/status` (watchdog state; drives the "Bot OK / DOWN" pill in the dashboard header)
 
@@ -59,4 +62,4 @@ Admin (require password): `GET /api/leads`, `POST /api/leads/status`, `GET /api/
 - Lead capture is triggered by Claude including `[LEAD_CAPTURED]{JSON}` at the end of a response — the server (`captureLeadFromReply`) records it and strips it before the reply goes out
 - All var declarations (no let/const) — the codebase uses ES5-style JavaScript throughout
 - CORS allows no-origin requests (direct access, server-to-server) but blocks unrecognized origins
-- The `~1,900` active member count should NOT be included in any prompts or public-facing content
+- The `~1,900` active member count should NOT be included in any prompts or public-facing content (`publicTextGuard()` in faq.js rejects it)
